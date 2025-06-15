@@ -1,0 +1,230 @@
+@startuml telemetry-classes
+
+!theme plain
+skinparam backgroundColor white
+skinparam classBackgroundColor lightblue
+skinparam interfaceBackgroundColor lightyellow
+
+note as N1
+**Telemetry Architecture Details**
+end note
+
+class TelemetryService {
+  -providers: TelemetryProvider[]
+  -eventQueue: EventQueue
+  -sessionManager: SessionManager
+  -contextEnricher: ContextEnricher
+  
+  +trackEvent(name: string, properties: object): void
+  +trackError(error: Error, context: object): void
+  +trackPerformance(metric: string, value: number, unit: string): void
+  +setUser(userId: string, properties: object): void
+  +flush(): void
+  
+  -enrichEvent(event: TelemetryEvent): EnrichedEvent
+  -validateEvent(event: TelemetryEvent): boolean
+}
+
+class TelemetryEvent {
+  +name: string
+  +properties: object
+  +timestamp: Date
+  +sessionId: string
+  +userId: string
+}
+
+class SessionManager {
+  -currentSession: Session
+  +startSession(): string
+  +endSession(): void
+  +getSessionId(): string
+}
+
+class EventQueue {
+  -events: TelemetryEvent[]
+  -batchSize: number
+  -flushInterval: number
+  -retryQueue: FailedEvent[]
+  
+  +enqueue(event: TelemetryEvent): void
+  +flush(): void
+  +retry(failedEvent: FailedEvent): void
+  
+  -shouldFlush(): boolean
+  -createBatch(): TelemetryEvent[]
+}
+
+class FailedEvent {
+  +event: TelemetryEvent
+  +retryCount: number
+  +lastAttempt: Date
+  +error: Error
+}
+
+interface TelemetryProvider {
+  +sendEvent(event: TelemetryEvent): void
+  +sendBatch(events: TelemetryEvent[]): void
+  +configure(config: ProviderConfig): void
+}
+
+abstract class ProviderConfig {
+  +apiKey: string
+  +endpoint: string
+}
+
+class AmplitudeProvider {
+  -apiKey: string
+  -httpClient: HttpClient
+  
+  +sendEvent(event: TelemetryEvent): void
+  +sendBatch(events: TelemetryEvent[]): void
+  +configure(config: AmplitudeConfig): void
+  
+  -formatAmplitudeEvent(event: TelemetryEvent): AmplitudeEvent
+}
+
+class AmplitudeConfig {
+  +apiKey: string
+  +serverUrl: string
+}
+
+class MixpanelProvider {
+  -token: string
+  -httpClient: HttpClient
+  
+  +sendEvent(event: TelemetryEvent): void
+  +sendBatch(events: TelemetryEvent[]): void
+  +configure(config: MixpanelConfig): void
+  
+  -formatMixpanelEvent(event: TelemetryEvent): MixpanelEvent
+}
+
+class MixpanelConfig {
+  +token: string
+  +apiUrl: string
+}
+
+class CustomProvider {
+  -endpoint: string
+  -apiKey: string
+  -httpClient: HttpClient
+  
+  +sendEvent(event: TelemetryEvent): void
+  +sendBatch(events: TelemetryEvent[]): void
+  +configure(config: CustomConfig): void
+  
+  -formatCustomEvent(event: TelemetryEvent): CustomEvent
+}
+
+class CustomConfig {
+  +endpoint: string
+  +apiKey: string
+  +headers: object
+}
+
+class EnrichedEvent {
+  +name: string
+  +properties: object
+  +timestamp: Date
+  +sessionId: string
+  +userId: string
+  +sdkVersion: string
+  +deviceInfo: DeviceInfo
+  +contextData: object
+}
+
+class DeviceInfo {
+  +platform: string
+  +os: string
+  +browser: string
+  +version: string
+}
+
+class Session {
+  +id: string
+  +startTime: Date
+  +endTime: Date
+  +userId: string
+}
+
+class ContextEnricher {
+  +enrichEvent(event: TelemetryEvent): EnrichedEvent
+  +addSessionContext(event: TelemetryEvent): void
+  +addDeviceContext(event: TelemetryEvent): void
+}
+
+class AmplitudeEvent {
+  +event_type: string
+  +event_properties: object
+  +user_id: string
+  +session_id: string
+  +time: number
+}
+
+class MixpanelEvent {
+  +event: string
+  +properties: object
+  +distinct_id: string
+}
+
+class CustomEvent {
+  +name: string
+  +data: object
+  +metadata: object
+}
+
+class HttpConfig {
+  +timeout: number
+  +retryAttempts: number
+  +baseUrl?: string
+}
+
+class HttpClient {
+  +post(url: string, data: object): Response
+  +configure(config: HttpConfig): void
+}
+
+' Service relationships
+TelemetryService *-- EventQueue
+TelemetryService *-- SessionManager
+TelemetryService *-- ContextEnricher
+TelemetryService o-- TelemetryProvider
+EventQueue ..> TelemetryProvider : sends to
+EventQueue *-- FailedEvent
+
+' Event relationships
+TelemetryService ..> TelemetryEvent : creates
+ContextEnricher ..> EnrichedEvent : creates
+SessionManager ..> Session : manages
+EnrichedEvent --|> TelemetryEvent : extends
+EnrichedEvent ..> DeviceInfo : contains
+
+' Provider implementations
+AmplitudeProvider ..|> TelemetryProvider
+MixpanelProvider ..|> TelemetryProvider
+CustomProvider ..|> TelemetryProvider
+
+' Provider event formatting
+AmplitudeProvider ..> AmplitudeEvent : creates
+MixpanelProvider ..> MixpanelEvent : creates
+CustomProvider ..> CustomEvent : creates
+
+' Configuration relationships
+AmplitudeProvider ..> AmplitudeConfig
+MixpanelProvider ..> MixpanelConfig
+CustomProvider ..> CustomConfig
+AmplitudeConfig --|> ProviderConfig
+MixpanelConfig --|> ProviderConfig
+CustomConfig --|> ProviderConfig
+
+' HTTP Client usage
+AmplitudeProvider ..> HttpClient
+MixpanelProvider ..> HttpClient
+CustomProvider ..> HttpClient
+HttpClient ..> HttpConfig
+
+note right of TelemetryService : **Central Telemetry Hub**\nManages all analytics\nand event processing
+note bottom of EventQueue : **Reliable Event Delivery**\nBatching, retry logic,\nand event ordering
+note left of TelemetryProvider : **Multi-Provider Support**\nSend to multiple backends\nsimultaneously
+
+@enduml

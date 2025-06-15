@@ -1,0 +1,178 @@
+@startuml ui-hooks
+
+package "React Hooks Layer" {
+
+  class useWebRTCCall {
+    -engine: RtcEngine
+    -callState: CallState
+    -participants: Participant[]
+    -error: WebRTCError | null
+    -localStream: MediaStream | null
+    -remoteStreams: Map<string, MediaStream>
+    
+    +joinCall(roomId: string): Promise<void>
+    +leaveCall(): Promise<void>
+    +toggleVideo(): Promise<void>
+    +toggleAudio(): Promise<void>
+    +switchCamera(): Promise<void>
+    
+    --
+    **Returns:**
+    callState: CallState
+    participants: Participant[]
+    error: WebRTCError | null
+    localStream: MediaStream | null
+    remoteStreams: MediaStream[]
+    actions: CallActions
+  }
+
+  class useMediaDevices {
+    -deviceList: MediaDeviceInfo[]
+    -selectedDevices: SelectedDevices
+    -permissions: MediaPermissions
+    -enumerationError: Error | null
+    
+    +enumerateDevices(): Promise<MediaDeviceInfo[]>
+    +requestPermissions(constraints: MediaStreamConstraints): Promise<void>
+    +switchCameraDevice(deviceId: string): Promise<void>
+    +switchMicDevice(deviceId: string): Promise<void>
+    +startScreenShare(): Promise<void>
+    +stopScreenShare(): void
+    
+    --
+    **Returns:**
+    devices: MediaDeviceInfo[]
+    selectedDevices: SelectedDevices
+    permissions: MediaPermissions
+    error: Error | null
+    actions: DeviceActions
+  }
+
+  class useCallQuality {
+    -metrics: QualityMetrics
+    -networkStatus: NetworkStatus
+    -qualityMode: QualityMode
+    -isMonitoring: boolean
+    
+    +startMonitoring(): void
+    +stopMonitoring(): void
+    +getRealtimeStats(): Promise<RTCStatsReport>
+    +forceQualityMode(mode: QualityMode): void
+    +resetToAutoMode(): void
+    
+    --
+    **Returns:**
+    metrics: QualityMetrics
+    networkStatus: NetworkStatus
+    qualityMode: QualityMode
+    isMonitoring: boolean
+    controls: QualityControls
+  }
+
+  class useErrorHandling {
+    -errors: WebRTCError[]
+    -recoveryAttempts: Map<string, number>
+    -isRecovering: boolean
+    
+    +clearError(errorId: string): void
+    +clearAllErrors(): void
+    +retryLastOperation(): Promise<void>
+    +reportError(error: WebRTCError): void
+    +dismissError(errorId: string): void
+    
+    --
+    **Returns:**
+    errors: WebRTCError[]
+    hasErrors: boolean
+    isRecovering: boolean
+    lastError: WebRTCError | null
+    actions: ErrorActions
+  }
+
+  class useMobileLifecycle {
+    -appState: AppState
+    -networkState: NetworkState
+    -backgroundTime: number
+    -isCallActive: boolean
+    
+    +handleAppStateChange(state: AppStateStatus): void
+    +handleNetworkChange(isConnected: boolean): void
+    +pauseCallOnBackground(): void
+    +resumeCallOnForeground(): void
+    
+    --
+    **Returns:**
+    appState: AppState
+    networkState: NetworkState
+    isInBackground: boolean
+    backgroundDuration: number
+    actions: LifecycleActions
+  }
+
+  class useDevPanel {
+    -debugMode: boolean
+    -simulatedConditions: NetworkConditions | null
+    -capturedLogs: LogEntry[]
+    -injectedErrors: WebRTCError[]
+    
+    +enableDebug(): void
+    +disableDebug(): void
+    +simulateNetworkCondition(condition: NetworkConditions): void
+    +injectError(error: WebRTCError): void
+    +exportLogs(): string
+    +clearLogs(): void
+    
+    --
+    **Returns:**
+    debugMode: boolean
+    simulatedConditions: NetworkConditions | null
+    logs: LogEntry[]
+    controls: DevPanelControls
+  }
+
+}
+
+package "Core Services" {
+  class RtcEngine
+  class MediaController  
+  class DegradationManager
+  class ErrorHandler
+}
+
+package "Infrastructure" {
+  class TelemetryProvider
+  class PerformanceMonitor
+  class Container
+}
+
+' Hook Dependencies (using different arrow types)
+useWebRTCCall --> RtcEngine : uses
+useWebRTCCall ..> ErrorHandler : subscribes
+useWebRTCCall ..> TelemetryProvider : tracks
+
+useMediaDevices --> MediaController : controls
+useMediaDevices ..> ErrorHandler : reports
+
+useCallQuality --> DegradationManager : monitors
+useCallQuality ..> PerformanceMonitor : reads
+
+useErrorHandling --> ErrorHandler : manages
+useErrorHandling ..> TelemetryProvider : reports
+
+useMobileLifecycle ..> RtcEngine : notifies
+useMobileLifecycle ..> MediaController : controls
+
+useDevPanel --> Container : inspects
+useDevPanel ..> RtcEngine : injects
+
+' Hook Interactions
+useWebRTCCall ..> useErrorHandling : shares errors
+useWebRTCCall ..> useCallQuality : receives quality
+useMediaDevices ..> useErrorHandling : reports errors
+useMobileLifecycle ..> useWebRTCCall : lifecycle events
+
+note top of useDevPanel : **Development Only**\nRemoved in production builds
+note bottom of useMobileLifecycle : **Platform Specific**\nReact Native implementation
+note right of useWebRTCCall : **Primary Hook**\nOrchestrates call lifecycle
+
+@enduml

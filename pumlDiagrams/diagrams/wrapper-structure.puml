@@ -1,0 +1,177 @@
+@startuml wrapper-structure
+@startuml wrapper-structure
+abstract class BaseWrapper {
+  #engine: RtcEngine
+  #errorHandler: ErrorHandler
+  #telemetry: TelemetryProvider
+  #config: WrapperConfig
+  
+  +initialize(config: WrapperConfig): Promise<void>
+  +{abstract} requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +{abstract} handleLifecycleEvent(event: LifecycleEvent): void
+  +{abstract} enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +{abstract} optimizeForPlatform(): void
+  
+  #onError(error: WebRTCError): void
+  #trackEvent(event: string, properties: any): void
+  #{abstract} getPlatformCapabilities(): PlatformCapabilities
+}
+
+class WebWrapper extends BaseWrapper {
+  -visibilityChangeHandler: EventListener
+  -deviceChangeHandler: EventListener
+  -beforeUnloadHandler: EventListener
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupBrowserOptimizations(): void
+  +handleTabVisibility(): void
+  +preventAccidentalClose(): void
+  
+  -onVisibilityChange(): void
+  -onDeviceChange(): void
+  -onBeforeUnload(event: BeforeUnloadEvent): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class ReactNativeWrapper extends BaseWrapper {
+  -appStateSubscription: AppStateSubscription
+  -netInfoSubscription: NetInfoSubscription
+  -audioSessionManager: AudioSessionManager
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupAudioSession(): Promise<void>
+  +handleAppStateChange(nextState: AppStateStatus): void
+  +handleNetworkChange(state: NetInfoState): void
+  +setupProximityDetection(): void
+  
+  -onAppStateChange(nextState: AppStateStatus): void
+  -onNetworkStateChange(state: NetInfoState): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class iOSWrapper extends BaseWrapper {
+  -callKitProvider: CXProvider
+  -audioSession: AVAudioSession
+  -backgroundTaskId: UIBackgroundTaskIdentifier
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupCallKit(): Promise<void>
+  +configureAudioSession(): Promise<void>
+  +handleCallKitActions(): void
+  +requestBackgroundTask(): UIBackgroundTaskIdentifier
+  
+  -onCallKitAction(action: CXAction): void
+  -onAudioSessionInterruption(): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class AndroidWrapper extends BaseWrapper {
+  -connectionService: ConnectionService
+  -audioManager: AudioManager
+  -wakeLock: PowerManager.WakeLock
+  -foregroundService: ForegroundService
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupConnectionService(): Promise<void>
+  +startForegroundService(): void
+  +acquireWakeLock(): void
+  +handleTelecomActions(): void
+  
+  -onConnectionServiceAction(action: Connection.Action): void
+  -onAudioFocusChange(focusChange: int): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class FlutterWrapper extends BaseWrapper {
+  -methodChannel: MethodChannel
+  -eventChannel: EventChannel
+  -platformVersion: String
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupMethodChannels(): void
+  +handlePlatformMessages(): void
+  +bridgeToNative(method: string, args: any): Promise<any>
+  
+  -onMethodCall(call: MethodCall): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+enum LifecycleEvent {
+  APP_FOREGROUND
+  APP_BACKGROUND
+  NETWORK_CONNECTED
+  NETWORK_DISCONNECTED
+  DEVICE_ROTATION
+  AUDIO_ROUTE_CHANGED
+  CALL_INTERRUPTED
+}
+
+interface PlatformCapabilities {
+  +hasCamera: boolean
+  +hasMicrophone: boolean
+  +supportsCameraSwitching: boolean
+  +supportsScreenShare: boolean
+  +supportsBackgroundAudio: boolean
+  +maxVideoResolution: VideoResolution
+  +supportedCodecs: AudioVideoCodec[]
+}
+
+interface WrapperConfig {
+  +platformOptimizations: boolean
+  +backgroundModeEnabled: boolean
+  +debugMode: boolean
+  +telemetryEnabled: boolean
+}
+
+class WrapperFactory {
+  +{static} createWrapper(platform: Platform): BaseWrapper
+  +{static} detectPlatform(): Platform
+  -{static} validatePlatformSupport(platform: Platform): boolean
+}
+
+' Inheritance relationships
+WebWrapper --|> BaseWrapper
+ReactNativeWrapper --|> BaseWrapper
+iOSWrapper --|> BaseWrapper
+AndroidWrapper --|> BaseWrapper
+FlutterWrapper --|> BaseWrapper
+
+' Composition and usage
+BaseWrapper o-- PlatformCapabilities : defines
+BaseWrapper ..> LifecycleEvent : handles
+BaseWrapper ..> WrapperConfig : uses
+
+' Factory pattern
+WrapperFactory ..> WebWrapper : creates
+WrapperFactory ..> ReactNativeWrapper : creates
+WrapperFactory ..> iOSWrapper : creates
+WrapperFactory ..> AndroidWrapper : creates
+WrapperFactory ..> FlutterWrapper : creates
+
+note top of BaseWrapper : **Template Method Pattern**\nDefines common lifecycle
+note bottom of WrapperFactory : **Factory Pattern**\nPlatform detection & creation
+note right of WebWrapper : **Browser Specific**\nTab visibility, device enumeration
+note right of ReactNativeWrapper : **Cross-Platform Mobile**\nAppState, NetInfo integration
+note left of iOSWrapper : **iOS Native**\nCallKit, AVAudioSession
+note left of AndroidWrapper : **Android Native**\nConnectionService, ForegroundService
+@enduml

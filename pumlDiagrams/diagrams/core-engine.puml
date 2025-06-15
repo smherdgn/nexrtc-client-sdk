@@ -1,0 +1,131 @@
+@startuml core-engine
+@startuml core-engine
+class RtcEngine {
+  -signaling: SignalingClient
+  -media: MediaController
+  -degradation: DegradationManager
+  -errorHandler: ErrorHandler
+  -telemetry: TelemetryProvider
+  -config: RTCConfiguration
+  -connectionState: ConnectionState
+  
+  +createConnection(roomId: string): Promise<void>
+  +joinRoom(roomId: string): Promise<void>
+  +leaveRoom(): Promise<void>
+  +toggleVideo(): Promise<void>
+  +toggleAudio(): Promise<void>
+  +getCallStats(): Promise<RTCStatsReport>
+  +destroy(): void
+  
+  -onConnectionStateChange(state: RTCConnectionState): void
+  -onIceConnectionStateChange(state: RTCIceConnectionState): void
+  -onSignalingStateChange(state: RTCSignalingState): void
+}
+
+class SignalingClient {
+  -websocket: WebSocket
+  -reconnectAttempts: number
+  -heartbeatInterval: number
+  -messageQueue: Message[]
+  -url: string
+  
+  +connect(url: string): Promise<void>
+  +disconnect(): void
+  +sendMessage(message: SignalingMessage): void
+  +subscribe(event: string, handler: Function): void
+  +unsubscribe(event: string, handler: Function): void
+  
+  -onMessage(event: MessageEvent): void
+  -onConnectionLost(): void
+  -reconnectWithBackoff(): Promise<void>
+  -startHeartbeat(): void
+  -stopHeartbeat(): void
+}
+
+class MediaController {
+  -localStream: MediaStream
+  -remoteStreams: Map<string, MediaStream>
+  -devices: MediaDeviceInfo[]
+  -constraints: MediaStreamConstraints
+  
+  +getLocalMedia(constraints: MediaStreamConstraints): Promise<MediaStream>
+  +enumerateDevices(): Promise<MediaDeviceInfo[]>
+  +switchCameraDevice(): Promise<void>
+  +switchMicDevice(deviceId: string): Promise<void>
+  +startScreenCapture(): Promise<MediaStream>
+  +stopScreenCapture(): void
+  +muteAudio(): void
+  +unmuteAudio(): void
+  +pauseVideo(): void
+  +resumeVideo(): void
+  
+  -onDeviceChange(): void
+  -onStreamEnded(): void
+  -applyConstraints(constraints: MediaTrackConstraints): Promise<void>
+}
+
+class DegradationManager {
+  -currentMode: QualityMode
+  -thresholds: QualityThresholds
+  -metrics: NetworkMetrics
+  -strategies: Map<QualityMode, QualityStrategy>
+  -lastDegradationTime: number
+  
+  +analyzeNetworkQuality(stats: RTCStatsReport): QualityMode
+  +applyDegradation(targetMode: QualityMode): Promise<void>
+  +attemptUpgrade(): Promise<void>
+  +setQualityThresholds(thresholds: QualityThresholds): void
+  +getCurrentMode(): QualityMode
+  
+  -calculateNetworkScore(stats: RTCStatsReport): number
+  -triggerModeChange(fromMode: QualityMode, toMode: QualityMode): void
+  -canUpgrade(): boolean
+}
+
+enum QualityMode {
+  VIDEO_HD
+  VIDEO_SD
+  AUDIO_ONLY
+  TEXT_ONLY
+}
+
+enum ConnectionState {
+  IDLE
+  CONNECTING
+  CONNECTED
+  RECONNECTING
+  DISCONNECTED
+  FAILED
+}
+
+interface QualityStrategy {
+  +apply(engine: RtcEngine): Promise<void>
+  +rollback(engine: RtcEngine): Promise<void>
+  +canApply(currentState: any): boolean
+}
+
+class VideoHDStrategy implements QualityStrategy
+class VideoSDStrategy implements QualityStrategy
+class AudioStrategy implements QualityStrategy
+class TextStrategy implements QualityStrategy
+
+' Composition relationships
+RtcEngine *-- SignalingClient
+RtcEngine *-- MediaController
+RtcEngine *-- DegradationManager
+RtcEngine --> ConnectionState
+
+' Strategy pattern
+DegradationManager --> QualityMode
+DegradationManager o-- QualityStrategy
+DegradationManager ..> VideoHDStrategy : creates
+DegradationManager ..> VideoSDStrategy : creates
+DegradationManager ..> AudioStrategy : creates
+DegradationManager ..> TextStrategy : creates
+
+' Event notifications
+SignalingClient ..> RtcEngine : <<notifies>>
+MediaController ..> RtcEngine : <<notifies>>
+DegradationManager ..> RtcEngine : <<notifies>>
+RtcEngine ..> DegradationManager : <<provides stats>>
+@enduml

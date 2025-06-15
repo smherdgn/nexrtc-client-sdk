@@ -1,0 +1,211 @@
+@startuml sdk-package-map
+@startuml sdk-package-map
+package "nextrtc/" {
+  
+  package "packages/" as Packages {
+    
+    package "client-core/" as Core #FFE6E6 {
+      file "RtcEngine.ts"
+      file "SignalingClient.ts" 
+      file "MediaController.ts"
+      file "DegradationManager.ts"
+      file "index.ts"
+      file "package.json" as CorePkg
+    }
+    
+    package "wrapper-web/" as WebWrapper #E6F3FF {
+      file "WebWrapper.ts"
+      file "BrowserOptimizations.ts"
+      file "WebRTCUtils.ts" 
+      file "index.ts"
+      file "package.json" as WebPkg
+    }
+    
+    package "wrapper-react-native/" as RNWrapper #E6FFE6 {
+      file "ReactNativeWrapper.ts"
+      file "AppStateManager.ts"
+      file "AudioSessionManager.ts"
+      file "index.ts" 
+      file "package.json" as RNPkg
+    }
+    
+    package "wrapper-ios/" as iOSWrapper #FFF0E6 {
+      file "iOSWrapper.ts"
+      file "CallKitIntegration.ts"
+      file "AVAudioSessionManager.ts"
+      file "index.ts"
+      file "package.json" as iOSPkg
+    }
+    
+    package "wrapper-android/" as AndroidWrapper #F0E6FF {
+      file "AndroidWrapper.ts"
+      file "ConnectionServiceManager.ts"
+      file "ForegroundServiceManager.ts"
+      file "index.ts"
+      file "package.json" as AndroidPkg
+    }
+    
+    package "ui-react/" as UIReact #FFE6F3 {
+      file "hooks/"
+      file "components/"
+      file "CallLayout.tsx"
+      file "QualityIndicator.tsx"
+      file "index.ts"
+      file "package.json" as UIReactPkg
+    }
+    
+    package "ui-react-native/" as UIRN #E6FFF0 {
+      file "hooks/"
+      file "components/"
+      file "MobileCallLayout.tsx"
+      file "NativeControls.tsx"
+      file "index.ts"
+      file "package.json" as UIRNPkg
+    }
+    
+    package "error-handling/" as ErrorHandling #FFCCCC {
+      file "ErrorHandler.ts"
+      file "RecoveryStrategies.ts"
+      file "ErrorTypes.ts"
+      file "index.ts"
+      file "package.json" as ErrorPkg
+    }
+    
+    package "telemetry/" as Telemetry #CCFFCC {
+      file "TelemetryService.ts"
+      file "providers/"
+      file "EventQueue.ts"
+      file "index.ts"
+      file "package.json" as TelemetryPkg
+    }
+    
+    package "container/" as Container #CCCCFF {
+      file "DIContainer.ts"
+      file "ServiceRegistry.ts"
+      file "index.ts"
+      file "package.json" as ContainerPkg
+    }
+    
+    package "performance/" as Performance #FFFFCC {
+      file "PerformanceMonitor.ts"
+      file "MetricsCollector.ts"
+      file "index.ts"
+      file "package.json" as PerfPkg
+    }
+    
+    package "devtools/" as DevTools #FFCCFF {
+      file "DevPanel.tsx"
+      file "NetworkSimulator.ts"
+      file "DebugLogger.ts"
+      file "index.ts"
+      file "package.json" as DevPkg
+    }
+  }
+  
+  package "apps/" as Apps {
+    package "demo-web/" as DemoWeb {
+      file "src/"
+      file "vite.config.ts"
+      file "package.json" as DemoWebPkg
+    }
+    
+    package "demo-mobile/" as DemoMobile {
+      file "src/"
+      file "metro.config.js"
+      file "package.json" as DemoMobilePkg
+    }
+    
+    package "docs/" as Docs {
+      file "src/"
+      file "docusaurus.config.js"
+      file "package.json" as DocsPkg
+    }
+    
+    package "storybook/" as Storybook {
+      file "stories/"
+      file ".storybook/"
+      file "package.json" as StorybookPkg
+    }
+  }
+  
+  package "shared/" as Shared {
+    package "public/" as SharedPublic #E0E0E0 {
+      file "types/"
+      file "constants/"
+      file "interfaces/"
+      file "package.json" as PublicPkg
+    }
+    
+    package "internal/" as SharedInternal #D0D0D0 {
+      file "utils/"
+      file "test-utils/"
+      file "package.json" as InternalPkg
+    }
+    
+    package "contracts/" as Contracts #C0C0C0 {
+      file "api-contracts.ts"
+      file "version-contracts.ts"
+      file "package.json" as ContractsPkg
+    }
+  }
+  
+  file "package.json" as RootPkg
+  file "yarn.lock"
+  file "tsconfig.json"
+  file "turbo.json"
+}
+
+' Package Dependencies (Core Dependencies)
+WebWrapper --> Core : depends on
+RNWrapper --> Core : depends on  
+iOSWrapper --> Core : depends on
+AndroidWrapper --> Core : depends on
+
+UIReact --> WebWrapper : depends on
+UIRN --> RNWrapper : depends on
+
+' Infrastructure Dependencies 
+Core --> ErrorHandling : depends on
+Core --> Telemetry : depends on
+Core --> Container : depends on
+Core --> Performance : depends on
+
+' Cross-package Dependencies
+UIReact --> SharedPublic : depends on
+UIRN --> SharedPublic : depends on
+Core --> SharedPublic : depends on
+
+ErrorHandling --> SharedPublic : depends on
+Telemetry --> SharedPublic : depends on
+
+' Development Dependencies
+DevTools --> Core : depends on
+DevTools --> UIReact : depends on
+
+' App Dependencies
+DemoWeb --> UIReact : depends on
+DemoWeb --> WebWrapper : depends on
+DemoMobile --> UIRN : depends on  
+DemoMobile --> RNWrapper : depends on
+
+Storybook --> UIReact : depends on
+Storybook --> UIRN : depends on
+
+' Shared Internal Dependencies
+Core --> SharedInternal : depends on
+WebWrapper --> SharedInternal : depends on
+RNWrapper --> SharedInternal : depends on
+
+' Package Versioning Strategy
+note top of Core : **@nextrtc/client-core**\nv1.0.0 - Stable API
+note top of UIReact : **@nextrtc/ui-react**\nv1.0.0 - Stable Components  
+note top of ErrorHandling : **@nextrtc/error-handling**\nv1.0.0 - Stable Infrastructure
+note top of SharedPublic : **@nextrtc/shared**\nv1.0.0 - Public Contracts
+note bottom of DevTools : **@nextrtc/devtools**\nv0.1.0 - Development Only
+
+' Build Order Dependencies
+note right of RootPkg : **Build Order:**\n1. shared/public\n2. shared/internal\n3. client-core\n4. infrastructure packages\n5. wrapper packages\n6. ui packages\n7. apps
+
+' Package Manager Configuration
+note left of RootPkg : **Yarn Workspaces**\nMonorepo package management\nShared dependencies hoisting\nBuild orchestration with Turbo
+@enduml

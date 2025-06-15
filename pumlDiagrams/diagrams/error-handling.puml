@@ -1,0 +1,233 @@
+@startuml error-handling
+@startuml error-handling
+package "Error Type Hierarchy" {
+  abstract class WebRTCError {
+    +code: WebRTCErrorCode
+    +message: string
+    +timestamp: Date
+    +metadata: ErrorMetadata
+    +recoverable: boolean
+    +userMessage: string
+    +stackTrace: string
+    
+    +toJSON(): ErrorJSON
+    +toString(): string
+    +getRecoveryActions(): RecoveryAction[]
+    +isSimilarTo(other: WebRTCError): boolean
+  }
+
+  class MediaError extends WebRTCError {
+    +deviceId: string
+    +constraints: MediaStreamConstraints
+    +permissionState: PermissionState
+    
+    +getPermissionGuidance(): PermissionGuidance
+    +suggestAlternativeDevice(): MediaDeviceInfo | null
+  }
+
+  class ConnectionError extends WebRTCError {
+    +connectionState: RTCConnectionState
+    +iceConnectionState: RTCIceConnectionState
+    +signalingState: RTCSignalingState
+    +attemptNumber: number
+    
+    +shouldRetry(): boolean
+    +getRetryDelay(): number
+    +canFallbackToRelay(): boolean
+  }
+
+  class SignalingError extends WebRTCError {
+    +websocketState: WebSocketState
+    +lastMessageTime: Date
+    +reconnectAttempts: number
+    +serverResponse: string
+    
+    +shouldReconnect(): boolean
+    +getReconnectStrategy(): ReconnectStrategy
+  }
+
+  class NetworkError extends WebRTCError {
+    +networkType: NetworkType
+    +bandwidth: number
+    +latency: number
+    +packetLoss: number
+    
+    +suggestFallbackMode(): QualityMode
+    +estimateRecoveryTime(): number
+  }
+
+  class PlatformError extends WebRTCError {
+    +platform: Platform
+    +browserVersion: string
+    +capabilities: PlatformCapabilities
+    
+    +getCompatibilityInfo(): CompatibilityInfo
+    +suggestPlatformUpgrade(): UpgradeInfo
+  }
+}
+
+package "Error Handling Infrastructure" {
+  class ErrorHandler {
+    -errorListeners: Map<WebRTCErrorCode, ErrorListener[]>
+    -recoveryStrategies: Map<WebRTCErrorCode, RecoveryStrategy>
+    -errorHistory: ErrorHistoryEntry[]
+    -telemetry: TelemetryProvider
+    -maxRetryAttempts: number
+    
+    +handleError(error: WebRTCError): Promise<void>
+    +registerListener(code: WebRTCErrorCode, listener: ErrorListener): void
+    +unregisterListener(code: WebRTCErrorCode, listener: ErrorListener): void
+    +setRecoveryStrategy(code: WebRTCErrorCode, strategy: RecoveryStrategy): void
+    +getErrorHistory(): ErrorHistoryEntry[]
+    +clearErrorHistory(): void
+    
+    -notifyListeners(error: WebRTCError): void
+    -attemptRecovery(error: WebRTCError): Promise<RecoveryResult>
+    -logError(error: WebRTCError): void
+    -shouldRetry(error: WebRTCError): boolean
+  }
+
+  interface RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+  }
+
+  class MediaPermissionRecovery implements RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -showPermissionDialog(): Promise<boolean>
+    -requestPermissionsAgain(): Promise<void>
+  }
+
+  class ConnectionRetryRecovery implements RecoveryStrategy {
+    -maxRetries: number
+    -backoffMultiplier: number
+    
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -calculateBackoffDelay(attempt: number): number
+    -resetConnection(): Promise<void>
+  }
+
+  class NetworkAdaptationRecovery implements RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -adaptToNetworkConditions(): Promise<void>
+    -triggerFallbackMode(): Promise<void>
+  }
+
+  class SignalingReconnectRecovery implements RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -reconnectWithExponentialBackoff(): Promise<void>
+    -validateServerConnection(): Promise<boolean>
+  }
+}
+
+package "Error Flow Control" {
+  class ErrorAggregator {
+    -errorBuffer: WebRTCError[]
+    -aggregationWindow: number
+    -similarityThreshold: number
+    
+    +addError(error: WebRTCError): void
+    +getAggregatedErrors(): AggregatedError[]
+    +flushBuffer(): void
+    
+    -groupSimilarErrors(): Map<string, WebRTCError[]>
+    -createAggregatedError(errors: WebRTCError[]): AggregatedError
+  }
+
+  class ErrorReporter {
+    -telemetry: TelemetryProvider
+    -errorQueue: WebRTCError[]
+    -reportingInterval: number
+    
+    +reportError(error: WebRTCError): void
+    +reportRecovery(recovery: RecoveryResult): void
+    +flushErrorQueue(): Promise<void>
+    
+    -enrichErrorWithContext(error: WebRTCError): EnrichedError
+    -shouldReportImmediately(error: WebRTCError): boolean
+  }
+
+  class UserNotificationManager {
+    -notificationQueue: ErrorNotification[]
+    -suppressionRules: SuppressionRule[]
+    
+    +showErrorToUser(error: WebRTCError): void
+    +showRecoveryProgress(recovery: RecoveryResult): void
+    +suppressSimilarErrors(pattern: ErrorPattern): void
+    
+    -createUserFriendlyMessage(error: WebRTCError): string
+    -shouldSuppressNotification(error: WebRTCError): boolean
+  }
+}
+
+enum WebRTCErrorCode {
+  MEDIA_ACCESS_DENIED
+  MEDIA_DEVICE_NOT_FOUND
+  MEDIA_OVERCONSTRAINED
+  CONNECTION_FAILED
+  CONNECTION_TIMEOUT
+  ICE_CONNECTION_FAILED
+  SIGNALING_DISCONNECTED
+  SIGNALING_AUTH_FAILED
+  NETWORK_UNAVAILABLE
+  BANDWIDTH_INSUFFICIENT
+  PLATFORM_NOT_SUPPORTED
+  BROWSER_NOT_COMPATIBLE
+}
+
+enum RecoveryResult {
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILURE
+  RETRY_LATER
+  NOT_RECOVERABLE
+}
+
+' Error type inheritance
+MediaError --|> WebRTCError
+ConnectionError --|> WebRTCError
+SignalingError --|> WebRTCError
+NetworkError --|> WebRTCError
+PlatformError --|> WebRTCError
+
+' Error handling relationships
+ErrorHandler *-- RecoveryStrategy
+ErrorHandler --> WebRTCError
+ErrorHandler ..> ErrorAggregator : uses
+ErrorHandler ..> ErrorReporter : uses
+ErrorHandler ..> UserNotificationManager : uses
+
+' Recovery strategy implementations
+MediaPermissionRecovery ..|> RecoveryStrategy
+ConnectionRetryRecovery ..|> RecoveryStrategy
+NetworkAdaptationRecovery ..|> RecoveryStrategy
+SignalingReconnectRecovery ..|> RecoveryStrategy
+
+' Error flow
+ErrorHandler --> RecoveryResult
+ErrorReporter ..> WebRTCError : reports
+UserNotificationManager ..> WebRTCError : displays
+
+note top of WebRTCError : **Base Error Class**\nAll errors extend this
+note bottom of ErrorHandler : **Central Error Management**\nHandles all error types
+note right of RecoveryStrategy : **Strategy Pattern**\nPluggable recovery mechanisms
+note left of ErrorAggregator : **Prevents Error Spam**\nGroups similar errors
+@enduml

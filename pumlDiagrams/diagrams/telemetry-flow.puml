@@ -1,0 +1,129 @@
+@startuml telemetry-flow
+
+!theme plain
+skinparam backgroundColor white
+skinparam sequenceArrowColor blue
+skinparam sequenceLifeLineBorderColor blue
+
+participant "SDK Component" as Component
+participant "TelemetryService" as Service
+participant "EventQueue" as Queue
+participant "TelemetryProvider" as Provider
+participant "Analytics Backend" as Backend
+participant "Amplitude Backend" as Amplitude
+participant "Mixpanel Backend" as Mixpanel
+
+activate Component
+
+note over Component : User action or system event occurs
+
+Component -> Service: trackEvent(name, properties)
+activate Service
+
+Service -> Service: enrichWithContext(event)
+note right : Add session ID, user ID,\ntimestamp, SDK version
+
+Service -> Service: validateEvent(event)
+alt Event validation passes
+  Service -> Queue: enqueue(event)
+  activate Queue
+  
+  Queue -> Queue: checkBatchSize()
+  alt Batch size reached OR timeout
+    Queue -> Provider: sendBatch(events[])
+    activate Provider
+    
+    Provider -> Provider: formatForBackend(events)
+    
+    Provider -> Backend: POST /analytics/events
+    activate Backend
+    Backend --> Provider: 200 OK
+    deactivate Backend
+
+    Provider -> Amplitude: POST /2/httpapi
+    activate Amplitude
+    Amplitude --> Provider: Success
+    deactivate Amplitude
+
+    Provider -> Mixpanel: POST /track
+    activate Mixpanel
+    Mixpanel --> Provider: Success
+    deactivate Mixpanel
+    
+    Provider --> Queue: BatchResult
+    deactivate Provider
+    
+    Queue -> Queue: clearSentEvents()
+    Queue --> Service: Success
+  else
+    Queue --> Service: Queued
+  end
+  deactivate Queue
+  
+  Service --> Component: Success
+else
+  Service --> Component: ValidationError
+end
+
+deactivate Service
+
+note over Component, Backend : **Error Handling & Retry Logic**
+
+Component -> Service: trackError(error, context)
+activate Service
+
+Service -> Service: enrichErrorWithStack(error)
+Service -> Queue: enqueue(errorEvent, priority: HIGH)
+activate Queue
+
+Queue -> Queue: prioritizeErrorEvents()
+Queue -> Provider: sendImmediately(errorEvent)
+activate Provider
+
+Provider -> Backend: POST /errors
+activate Backend
+alt Backend responds successfully
+  Backend --> Provider: 200 OK
+else Backend is down
+  Backend --> Provider: 500 Error
+  Provider -> Provider: scheduleRetry(event, backoff)
+end
+deactivate Backend
+
+Provider --> Queue: Result
+deactivate Provider
+Queue --> Service: Result
+deactivate Queue
+Service --> Component: Result
+deactivate Service
+
+note over Component, Backend : **Performance Metrics Flow**
+
+Component -> Service: trackPerformance(metric, value, unit)
+activate Service
+
+Service -> Service: validateMetricValue(value)
+Service -> Service: addPerformanceContext(metric)
+
+Service -> Queue: enqueue(performanceEvent)
+activate Queue
+
+Queue -> Provider: sendBatch(performanceEvents)
+activate Provider
+
+Provider -> Provider: aggregateMetrics(events)
+Provider -> Backend: POST /metrics/performance
+activate Backend
+Backend --> Provider: 200 OK
+deactivate Backend
+
+Provider --> Queue: Success
+deactivate Provider
+Queue --> Service: Success
+deactivate Queue
+Service --> Component: Success
+deactivate Service
+
+deactivate Component
+
+@enduml

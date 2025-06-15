@@ -1,0 +1,102 @@
+@startuml fallback-flow
+@startuml fallback-flow
+start
+
+:Monitor Network Quality;
+note right: Every 2 seconds\nCollect RTT, Jitter, Packet Loss
+
+:Calculate Quality Score;
+note right: Weighted algorithm:\nRTT (40%), Packet Loss (40%)\nJitter (20%)
+
+if (Quality Score?) then (Excellent: >85)
+  if (Current Mode != VIDEO_HD?) then (yes)
+    :Upgrade to Video HD;
+    :Enable 1080p/720p streams;
+    :Update UI quality indicator;
+    :Log upgrade event;
+  endif
+  :Maintain Video HD Mode;
+  
+elseif (Good: 70-85) then (yes)
+  if (Current Mode == VIDEO_HD?) then (yes)
+    :Degrade to Video SD;
+    :Reduce resolution to 480p;
+    :Adjust bitrate downward;
+    :Update UI indicators;
+    :Notify telemetry;
+  elseif (Current Mode < VIDEO_SD?) then (yes)
+    :Upgrade to Video SD;
+    :Enable medium quality video;
+  endif
+  
+elseif (Fair: 50-70) then (yes)
+  if (Current Mode in [VIDEO_HD, VIDEO_SD]?) then (yes)
+    :Switch to Audio Only;
+    :Disable all video tracks;
+    :Keep audio at high quality;
+    :Show audio-only UI;
+    :Notify user about change;
+    :Save significant bandwidth;
+  endif
+  
+else (Poor: <50)
+  if (Current Mode != TEXT_ONLY?) then (yes)
+    :Switch to Text Chat;
+    :Close all media streams;
+    :Enable text chat interface;
+    :Preserve signaling only;
+    :Show explanation to user;
+    :Log degradation reason;
+  endif
+endif
+
+:Wait 2 seconds;
+
+if (Network Improved for 30s?) then (yes)
+  
+  if (TEXT_ONLY → Audio possible?) then (yes)
+    :Attempt upgrade to Audio;
+    :Test audio stream establishment;
+    if (Audio stream successful?) then (yes)
+      :Upgrade to Audio Only;
+      :Re-establish audio tracks;
+      :Update UI state;
+    else (failed)
+      :Stay in Text mode;
+      :Log upgrade failure;
+    endif
+    
+  elseif (AUDIO_ONLY → Video possible?) then (yes)
+    :Attempt upgrade to Video SD;
+    :Test video stream establishment;
+    if (Video stream successful?) then (yes)
+      :Upgrade to Video SD;
+      :Enable video tracks;
+      :Update UI layout;
+    else (failed)
+      :Stay in Audio mode;
+    endif
+    
+  elseif (VIDEO_SD → HD possible?) then (yes)
+    :Attempt upgrade to Video HD;
+    :Test higher bitrate;
+    if (HD stream stable?) then (yes)
+      :Upgrade to Video HD;
+      :Increase resolution;
+      :Update quality indicator;
+    else (failed)
+      :Stay in SD mode;
+    endif
+  endif
+  
+else (no)
+  :Continue current mode;
+  :Monitor for changes;
+endif
+
+stop
+
+note left: **Quality Thresholds:**\nExcellent: RTT <100ms, Loss <1%, Jitter <20ms\nGood: RTT <200ms, Loss <3%, Jitter <30ms\nFair: RTT <400ms, Loss <8%, Jitter <50ms\nPoor: RTT >400ms, Loss >8%, Jitter >50ms
+
+note right: **Upgrade Conditions:**\n• Sustained good quality for 30s\n• Available bandwidth sufficient\n• Device capabilities adequate\n• User hasn't manually set mode
+@enduml

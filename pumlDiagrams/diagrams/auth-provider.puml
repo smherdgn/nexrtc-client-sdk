@@ -1,0 +1,153 @@
+@startuml auth-provider
+@startuml auth-provider
+interface AuthProvider {
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+}
+
+class FirebaseAuthProvider implements AuthProvider {
+  -firebaseAuth: FirebaseAuth
+  -currentUser: User | null
+  -tokenRefreshTimer: Timer
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -onAuthStateChange(user: User | null): void
+  -setupTokenRefresh(): void
+}
+
+class Auth0Provider implements AuthProvider {
+  -auth0Client: Auth0Client
+  -accessToken: string | null
+  -refreshToken: string | null
+  -tokenExpiresAt: number
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -exchangeCodeForToken(code: string): Promise<TokenResponse>
+  -scheduleTokenRefresh(): void
+}
+
+class AWSCognitoProvider implements AuthProvider {
+  -cognitoUser: CognitoUser | null
+  -session: CognitoUserSession | null
+  -identityPool: string
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -refreshCognitoSession(): Promise<CognitoUserSession>
+  -getCredentials(): Promise<AWS.Credentials>
+}
+
+class CustomJWTProvider implements AuthProvider {
+  -jwtToken: string | null
+  -refreshEndpoint: string
+  -httpClient: HttpClient
+  -tokenPayload: JWTPayload | null
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -validateTokenFormat(): boolean
+  -parseJWTPayload(token: string): JWTPayload
+  -callRefreshEndpoint(): Promise<string>
+  -isTokenExpired(): boolean
+}
+
+class SAMLProvider implements AuthProvider {
+  -samlResponse: string | null
+  -sessionIndex: string | null
+  -idpEndpoint: string
+  -spEntityId: string
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -processSAMLResponse(response: string): void
+  -initiateSingleLogout(): Promise<void>
+  -validateSAMLAssertion(): boolean
+}
+
+class MockAuthProvider implements AuthProvider {
+  -mockToken: string
+  -isValidToken: boolean
+  -mockUser: UserInfo
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -generateMockToken(): string
+}
+
+class AuthContext {
+  -provider: AuthProvider | null
+  -tokenCache: Map<string, CachedToken>
+  -refreshTimer: Timer | null
+  -expiredCallbacks: TokenExpiredCallback[]
+  
+  +setProvider(provider: AuthProvider): void
+  +getCurrentToken(): Promise<string>
+  +scheduleTokenRefresh(): void
+  +clearTokens(): void
+  +isAuthenticated(): boolean
+  
+  -onTokenExpiry(): void
+  -cacheToken(token: string, expiresIn: number): void
+}
+
+class RtcEngine {
+  -authContext: AuthContext
+  
+  +setAuthProvider(provider: AuthProvider): void
+  +authenticateConnection(): Promise<void>
+  
+  -sendAuthenticatedMessage(message: any): Promise<void>
+}
+
+' Relationships
+AuthContext o-- AuthProvider : uses
+RtcEngine *-- AuthContext : contains
+
+' All provider implementations
+AuthContext ..> FirebaseAuthProvider : <<can use>>
+AuthContext ..> Auth0Provider : <<can use>>
+AuthContext ..> AWSCognitoProvider : <<can use>>
+AuthContext ..> CustomJWTProvider : <<can use>>
+AuthContext ..> SAMLProvider : <<can use>>
+AuthContext ..> MockAuthProvider : <<can use>>
+
+note top of MockAuthProvider : **For testing and\ndevelopment only**
+note bottom of AuthProvider : **All providers must handle\ntoken refresh automatically**
+note right of AuthContext : **Manages token lifecycle\nand provider switching**
+@enduml

@@ -1,0 +1,73 @@
+@startuml architecture
+@startuml architecture
+!define RECTANGLE class
+
+package "UI Layer" as UILayer #E8F4FD {
+  RECTANGLE "ui-react\n(Web Components)" as UIReact
+  RECTANGLE "ui-react-native\n(Mobile Components)" as UIRN
+  RECTANGLE "Component Library\n(CallLayout, QualityIndicator)" as CompLib
+}
+
+package "Adapter Layer" as AdapterLayer #F0F8E8 {
+  RECTANGLE "wrapper-web\n(Browser APIs)" as WebWrapper
+  RECTANGLE "wrapper-react-native\n(RN APIs)" as RNWrapper
+  RECTANGLE "wrapper-ios\n(Native iOS)" as iOSWrapper
+  RECTANGLE "wrapper-android\n(Native Android)" as AndroidWrapper
+  RECTANGLE "BaseWrapper\n(Template)" as BaseWrapper
+}
+
+package "Core Layer" as CoreLayer #FFF2E8 {
+  RECTANGLE "client-core\n(RtcEngine)" as Core
+  RECTANGLE "SignalingClient\n(WebSocket)" as Signaling
+  RECTANGLE "MediaController\n(Stream Management)" as Media
+  RECTANGLE "DegradationManager\n(Quality Fallback)" as Degradation
+}
+
+package "Infrastructure Layer" as InfraLayer #F8E8F8 {
+  RECTANGLE "error-handling\n(Centralized Errors)" as ErrorHandling
+  RECTANGLE "telemetry\n(Analytics)" as Telemetry
+  RECTANGLE "container\n(DI Container)" as Container
+  RECTANGLE "performance\n(Monitoring)" as Performance
+  RECTANGLE "devtools\n(Debug Utils)" as DevTools
+}
+
+' UI Layer connections
+UIReact ..> WebWrapper : <<uses>>
+UIRN ..> RNWrapper : <<uses>>
+CompLib ..> UIReact : <<extends>>
+CompLib ..> UIRN : <<extends>>
+
+' Adapter Layer inheritance
+WebWrapper --|> BaseWrapper : extends
+RNWrapper --|> BaseWrapper : extends
+iOSWrapper --|> BaseWrapper : extends
+AndroidWrapper --|> BaseWrapper : extends
+
+' Adapter to Core connections
+WebWrapper --> Core : delegates
+RNWrapper --> Core : delegates
+iOSWrapper --> Core : delegates
+AndroidWrapper --> Core : delegates
+
+' Core internal relationships
+Core *-- Signaling : contains
+Core *-- Media : contains
+Core *-- Degradation : contains
+
+' Infrastructure dependencies
+Core ..> ErrorHandling : reports
+Core ..> Telemetry : tracks
+Core ..> Container : managed by
+Core ..> Performance : monitored by
+DevTools ..> Core : inspects
+
+' Cross-layer dependencies
+BaseWrapper ..> ErrorHandling : reports
+BaseWrapper ..> Telemetry : tracks
+Degradation ..> Performance : metrics
+
+note top of UILayer : **Presentation Layer**\nZero business logic
+note top of AdapterLayer : **Platform Abstraction**\nLifecycle & Permissions
+note top of CoreLayer : **Business Logic**\nWebRTC Engine
+note top of InfraLayer : **Cross-Cutting Concerns**\nObservability & DI
+@enduml

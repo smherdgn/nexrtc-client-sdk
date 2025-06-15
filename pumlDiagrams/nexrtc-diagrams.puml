@@ -1,0 +1,2286 @@
+@startuml architecture
+!define RECTANGLE class
+
+package "UI Layer" as UILayer #E8F4FD {
+  RECTANGLE "ui-react\n(Web Components)" as UIReact
+  RECTANGLE "ui-react-native\n(Mobile Components)" as UIRN
+  RECTANGLE "Component Library\n(CallLayout, QualityIndicator)" as CompLib
+}
+
+package "Adapter Layer" as AdapterLayer #F0F8E8 {
+  RECTANGLE "wrapper-web\n(Browser APIs)" as WebWrapper
+  RECTANGLE "wrapper-react-native\n(RN APIs)" as RNWrapper
+  RECTANGLE "wrapper-ios\n(Native iOS)" as iOSWrapper
+  RECTANGLE "wrapper-android\n(Native Android)" as AndroidWrapper
+  RECTANGLE "BaseWrapper\n(Template)" as BaseWrapper
+}
+
+package "Core Layer" as CoreLayer #FFF2E8 {
+  RECTANGLE "client-core\n(RtcEngine)" as Core
+  RECTANGLE "SignalingClient\n(WebSocket)" as Signaling
+  RECTANGLE "MediaController\n(Stream Management)" as Media
+  RECTANGLE "DegradationManager\n(Quality Fallback)" as Degradation
+}
+
+package "Infrastructure Layer" as InfraLayer #F8E8F8 {
+  RECTANGLE "error-handling\n(Centralized Errors)" as ErrorHandling
+  RECTANGLE "telemetry\n(Analytics)" as Telemetry
+  RECTANGLE "container\n(DI Container)" as Container
+  RECTANGLE "performance\n(Monitoring)" as Performance
+  RECTANGLE "devtools\n(Debug Utils)" as DevTools
+}
+
+' UI Layer connections
+UIReact ..> WebWrapper : <<uses>>
+UIRN ..> RNWrapper : <<uses>>
+CompLib ..> UIReact : <<extends>>
+CompLib ..> UIRN : <<extends>>
+
+' Adapter Layer inheritance
+WebWrapper --|> BaseWrapper : extends
+RNWrapper --|> BaseWrapper : extends
+iOSWrapper --|> BaseWrapper : extends
+AndroidWrapper --|> BaseWrapper : extends
+
+' Adapter to Core connections
+WebWrapper --> Core : delegates
+RNWrapper --> Core : delegates
+iOSWrapper --> Core : delegates
+AndroidWrapper --> Core : delegates
+
+' Core internal relationships
+Core *-- Signaling : contains
+Core *-- Media : contains
+Core *-- Degradation : contains
+
+' Infrastructure dependencies
+Core ..> ErrorHandling : reports
+Core ..> Telemetry : tracks
+Core ..> Container : managed by
+Core ..> Performance : monitored by
+DevTools ..> Core : inspects
+
+' Cross-layer dependencies
+BaseWrapper ..> ErrorHandling : reports
+BaseWrapper ..> Telemetry : tracks
+Degradation ..> Performance : metrics
+
+note top of UILayer : **Presentation Layer**\nZero business logic
+note top of AdapterLayer : **Platform Abstraction**\nLifecycle & Permissions
+note top of CoreLayer : **Business Logic**\nWebRTC Engine
+note top of InfraLayer : **Cross-Cutting Concerns**\nObservability & DI
+@enduml
+
+@startuml core-engine
+class RtcEngine {
+  -signaling: SignalingClient
+  -media: MediaController
+  -degradation: DegradationManager
+  -errorHandler: ErrorHandler
+  -telemetry: TelemetryProvider
+  -config: RTCConfiguration
+  -connectionState: ConnectionState
+  
+  +createConnection(roomId: string): Promise<void>
+  +joinRoom(roomId: string): Promise<void>
+  +leaveRoom(): Promise<void>
+  +toggleVideo(): Promise<void>
+  +toggleAudio(): Promise<void>
+  +getCallStats(): Promise<RTCStatsReport>
+  +destroy(): void
+  
+  -onConnectionStateChange(state: RTCConnectionState): void
+  -onIceConnectionStateChange(state: RTCIceConnectionState): void
+  -onSignalingStateChange(state: RTCSignalingState): void
+}
+
+class SignalingClient {
+  -websocket: WebSocket
+  -reconnectAttempts: number
+  -heartbeatInterval: number
+  -messageQueue: Message[]
+  -url: string
+  
+  +connect(url: string): Promise<void>
+  +disconnect(): void
+  +sendMessage(message: SignalingMessage): void
+  +subscribe(event: string, handler: Function): void
+  +unsubscribe(event: string, handler: Function): void
+  
+  -onMessage(event: MessageEvent): void
+  -onConnectionLost(): void
+  -reconnectWithBackoff(): Promise<void>
+  -startHeartbeat(): void
+  -stopHeartbeat(): void
+}
+
+class MediaController {
+  -localStream: MediaStream
+  -remoteStreams: Map<string, MediaStream>
+  -devices: MediaDeviceInfo[]
+  -constraints: MediaStreamConstraints
+  
+  +getLocalMedia(constraints: MediaStreamConstraints): Promise<MediaStream>
+  +enumerateDevices(): Promise<MediaDeviceInfo[]>
+  +switchCameraDevice(): Promise<void>
+  +switchMicDevice(deviceId: string): Promise<void>
+  +startScreenCapture(): Promise<MediaStream>
+  +stopScreenCapture(): void
+  +muteAudio(): void
+  +unmuteAudio(): void
+  +pauseVideo(): void
+  +resumeVideo(): void
+  
+  -onDeviceChange(): void
+  -onStreamEnded(): void
+  -applyConstraints(constraints: MediaTrackConstraints): Promise<void>
+}
+
+class DegradationManager {
+  -currentMode: QualityMode
+  -thresholds: QualityThresholds
+  -metrics: NetworkMetrics
+  -strategies: Map<QualityMode, QualityStrategy>
+  -lastDegradationTime: number
+  
+  +analyzeNetworkQuality(stats: RTCStatsReport): QualityMode
+  +applyDegradation(targetMode: QualityMode): Promise<void>
+  +attemptUpgrade(): Promise<void>
+  +setQualityThresholds(thresholds: QualityThresholds): void
+  +getCurrentMode(): QualityMode
+  
+  -calculateNetworkScore(stats: RTCStatsReport): number
+  -triggerModeChange(fromMode: QualityMode, toMode: QualityMode): void
+  -canUpgrade(): boolean
+}
+
+enum QualityMode {
+  VIDEO_HD
+  VIDEO_SD
+  AUDIO_ONLY
+  TEXT_ONLY
+}
+
+enum ConnectionState {
+  IDLE
+  CONNECTING
+  CONNECTED
+  RECONNECTING
+  DISCONNECTED
+  FAILED
+}
+
+interface QualityStrategy {
+  +apply(engine: RtcEngine): Promise<void>
+  +rollback(engine: RtcEngine): Promise<void>
+  +canApply(currentState: any): boolean
+}
+
+class VideoHDStrategy implements QualityStrategy
+class VideoSDStrategy implements QualityStrategy
+class AudioStrategy implements QualityStrategy
+class TextStrategy implements QualityStrategy
+
+' Composition relationships
+RtcEngine *-- SignalingClient
+RtcEngine *-- MediaController
+RtcEngine *-- DegradationManager
+RtcEngine --> ConnectionState
+
+' Strategy pattern
+DegradationManager --> QualityMode
+DegradationManager o-- QualityStrategy
+DegradationManager ..> VideoHDStrategy : creates
+DegradationManager ..> VideoSDStrategy : creates
+DegradationManager ..> AudioStrategy : creates
+DegradationManager ..> TextStrategy : creates
+
+' Event notifications
+SignalingClient ..> RtcEngine : <<notifies>>
+MediaController ..> RtcEngine : <<notifies>>
+DegradationManager ..> RtcEngine : <<notifies>>
+RtcEngine ..> DegradationManager : <<provides stats>>
+@enduml
+
+@startuml call-lifecycle
+participant "User App" as App
+participant "RtcEngine" as Engine
+participant "SignalingClient" as Signaling
+participant "MediaController" as Media
+participant "Signaling Server" as Server
+participant "TURN/STUN" as TURN
+participant "Remote Peer" as Peer
+
+activate App
+App -> Engine: createConnection(roomId)
+activate Engine
+
+note over Engine: Initialize WebRTC infrastructure
+
+Engine -> Media: getLocalMedia(constraints)
+activate Media
+Media -> Media: Request permissions
+alt Permission granted
+  Media --> Engine: localStream
+else Permission denied
+  Media --> Engine: PermissionError
+  Engine --> App: Error event
+  stop
+end
+deactivate Media
+
+Engine -> Signaling: connect(signalingUrl)
+activate Signaling
+Signaling -> Server: WebSocket handshake
+Server --> Signaling: Connection established
+Signaling --> Engine: ready event
+deactivate Signaling
+
+Engine -> Engine: createPeerConnection()
+Engine -> TURN: getConfiguration()
+TURN --> Engine: iceServers[]
+
+Engine -> Engine: addLocalStream(localStream)
+Engine -> Signaling: sendMessage({type: 'join-room', roomId})
+
+Signaling -> Server: join-room
+Server -> Server: Add user to room
+Server --> Signaling: user-joined event
+Signaling --> Engine: user-joined
+
+note over Engine, Peer: ICE Candidate Exchange Phase
+
+Engine -> Engine: onicecandidate event
+Engine -> Signaling: sendMessage({type: 'ice-candidate', candidate})
+Signaling -> Server: Forward ICE candidate
+Server -> Peer: ICE candidate
+Peer -> Peer: addIceCandidate()
+
+note over Engine, Peer: SDP Offer/Answer Exchange
+
+Engine -> Engine: createOffer()
+Engine -> Engine: setLocalDescription(offer)
+Engine -> Signaling: sendMessage({type: 'offer', sdp})
+Signaling -> Server: Forward offer
+Server -> Peer: Offer SDP
+Peer -> Peer: setRemoteDescription(offer)
+Peer -> Peer: createAnswer()
+Peer -> Peer: setLocalDescription(answer)
+Peer -> Server: Answer SDP
+Server -> Signaling: Forward answer
+Signaling -> Engine: Answer received
+Engine -> Engine: setRemoteDescription(answer)
+
+note over Engine, Peer: Connection Establishment
+
+Engine -> Engine: ICE connection state: connected
+Engine --> App: onConnectionStateChange('connected')
+
+Engine -> Engine: ontrack event
+Engine -> Media: addRemoteStream(stream)
+activate Media
+Media --> Engine: remoteStream ready
+Engine --> App: onRemoteStream(stream)
+deactivate Media
+
+note over Engine, Peer: **Media Exchange Active**
+
+...Call in progress...
+
+note over App: User ends call
+
+App -> Engine: leaveRoom()
+Engine -> Signaling: sendMessage({type: 'leave-room'})
+Engine -> Engine: close peerConnection
+Engine -> Media: stopLocalStream()
+activate Media
+Media -> Media: Release media resources
+deactivate Media
+Engine --> App: call-ended event
+
+deactivate Engine
+deactivate App
+@enduml
+
+@startuml fallback-flow
+start
+
+:Monitor Network Quality;
+note right: Every 2 seconds\nCollect RTT, Jitter, Packet Loss
+
+:Calculate Quality Score;
+note right: Weighted algorithm:\nRTT (40%), Packet Loss (40%)\nJitter (20%)
+
+if (Quality Score?) then (Excellent: >85)
+  if (Current Mode != VIDEO_HD?) then (yes)
+    :Upgrade to Video HD;
+    :Enable 1080p/720p streams;
+    :Update UI quality indicator;
+    :Log upgrade event;
+  endif
+  :Maintain Video HD Mode;
+  
+elseif (Good: 70-85) then (yes)
+  if (Current Mode == VIDEO_HD?) then (yes)
+    :Degrade to Video SD;
+    :Reduce resolution to 480p;
+    :Adjust bitrate downward;
+    :Update UI indicators;
+    :Notify telemetry;
+  elseif (Current Mode < VIDEO_SD?) then (yes)
+    :Upgrade to Video SD;
+    :Enable medium quality video;
+  endif
+  
+elseif (Fair: 50-70) then (yes)
+  if (Current Mode in [VIDEO_HD, VIDEO_SD]?) then (yes)
+    :Switch to Audio Only;
+    :Disable all video tracks;
+    :Keep audio at high quality;
+    :Show audio-only UI;
+    :Notify user about change;
+    :Save significant bandwidth;
+  endif
+  
+else (Poor: <50)
+  if (Current Mode != TEXT_ONLY?) then (yes)
+    :Switch to Text Chat;
+    :Close all media streams;
+    :Enable text chat interface;
+    :Preserve signaling only;
+    :Show explanation to user;
+    :Log degradation reason;
+  endif
+endif
+
+:Wait 2 seconds;
+
+if (Network Improved for 30s?) then (yes)
+  
+  if (TEXT_ONLY → Audio possible?) then (yes)
+    :Attempt upgrade to Audio;
+    :Test audio stream establishment;
+    if (Audio stream successful?) then (yes)
+      :Upgrade to Audio Only;
+      :Re-establish audio tracks;
+      :Update UI state;
+    else (failed)
+      :Stay in Text mode;
+      :Log upgrade failure;
+    endif
+    
+  elseif (AUDIO_ONLY → Video possible?) then (yes)
+    :Attempt upgrade to Video SD;
+    :Test video stream establishment;
+    if (Video stream successful?) then (yes)
+      :Upgrade to Video SD;
+      :Enable video tracks;
+      :Update UI layout;
+    else (failed)
+      :Stay in Audio mode;
+    endif
+    
+  elseif (VIDEO_SD → HD possible?) then (yes)
+    :Attempt upgrade to Video HD;
+    :Test higher bitrate;
+    if (HD stream stable?) then (yes)
+      :Upgrade to Video HD;
+      :Increase resolution;
+      :Update quality indicator;
+    else (failed)
+      :Stay in SD mode;
+    endif
+  endif
+  
+else (no)
+  :Continue current mode;
+  :Monitor for changes;
+endif
+
+stop
+
+note left: **Quality Thresholds:**\nExcellent: RTT <100ms, Loss <1%, Jitter <20ms\nGood: RTT <200ms, Loss <3%, Jitter <30ms\nFair: RTT <400ms, Loss <8%, Jitter <50ms\nPoor: RTT >400ms, Loss >8%, Jitter >50ms
+
+note right: **Upgrade Conditions:**\n• Sustained good quality for 30s\n• Available bandwidth sufficient\n• Device capabilities adequate\n• User hasn't manually set mode
+@enduml
+
+@startuml auth-provider
+interface AuthProvider {
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+}
+
+class FirebaseAuthProvider implements AuthProvider {
+  -firebaseAuth: FirebaseAuth
+  -currentUser: User | null
+  -tokenRefreshTimer: Timer
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -onAuthStateChange(user: User | null): void
+  -setupTokenRefresh(): void
+}
+
+class Auth0Provider implements AuthProvider {
+  -auth0Client: Auth0Client
+  -accessToken: string | null
+  -refreshToken: string | null
+  -tokenExpiresAt: number
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -exchangeCodeForToken(code: string): Promise<TokenResponse>
+  -scheduleTokenRefresh(): void
+}
+
+class AWSCognitoProvider implements AuthProvider {
+  -cognitoUser: CognitoUser | null
+  -session: CognitoUserSession | null
+  -identityPool: string
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -refreshCognitoSession(): Promise<CognitoUserSession>
+  -getCredentials(): Promise<AWS.Credentials>
+}
+
+class CustomJWTProvider implements AuthProvider {
+  -jwtToken: string | null
+  -refreshEndpoint: string
+  -httpClient: HttpClient
+  -tokenPayload: JWTPayload | null
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -validateTokenFormat(): boolean
+  -parseJWTPayload(token: string): JWTPayload
+  -callRefreshEndpoint(): Promise<string>
+  -isTokenExpired(): boolean
+}
+
+class SAMLProvider implements AuthProvider {
+  -samlResponse: string | null
+  -sessionIndex: string | null
+  -idpEndpoint: string
+  -spEntityId: string
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -processSAMLResponse(response: string): void
+  -initiateSingleLogout(): Promise<void>
+  -validateSAMLAssertion(): boolean
+}
+
+class MockAuthProvider implements AuthProvider {
+  -mockToken: string
+  -isValidToken: boolean
+  -mockUser: UserInfo
+  
+  +getToken(): Promise<string>
+  +refreshToken(): Promise<string>
+  +isAuthenticated(): boolean
+  +logout(): Promise<void>
+  +onTokenExpired(callback: TokenExpiredCallback): void
+  +getCurrentUser(): Promise<UserInfo | null>
+  
+  -generateMockToken(): string
+}
+
+class AuthContext {
+  -provider: AuthProvider | null
+  -tokenCache: Map<string, CachedToken>
+  -refreshTimer: Timer | null
+  -expiredCallbacks: TokenExpiredCallback[]
+  
+  +setProvider(provider: AuthProvider): void
+  +getCurrentToken(): Promise<string>
+  +scheduleTokenRefresh(): void
+  +clearTokens(): void
+  +isAuthenticated(): boolean
+  
+  -onTokenExpiry(): void
+  -cacheToken(token: string, expiresIn: number): void
+}
+
+class RtcEngine {
+  -authContext: AuthContext
+  
+  +setAuthProvider(provider: AuthProvider): void
+  +authenticateConnection(): Promise<void>
+  
+  -sendAuthenticatedMessage(message: any): Promise<void>
+}
+
+' Relationships
+AuthContext o-- AuthProvider : uses
+RtcEngine *-- AuthContext : contains
+
+' All provider implementations
+AuthContext ..> FirebaseAuthProvider : <<can use>>
+AuthContext ..> Auth0Provider : <<can use>>
+AuthContext ..> AWSCognitoProvider : <<can use>>
+AuthContext ..> CustomJWTProvider : <<can use>>
+AuthContext ..> SAMLProvider : <<can use>>
+AuthContext ..> MockAuthProvider : <<can use>>
+
+note top of MockAuthProvider : **For testing and\ndevelopment only**
+note bottom of AuthProvider : **All providers must handle\ntoken refresh automatically**
+note right of AuthContext : **Manages token lifecycle\nand provider switching**
+@enduml
+
+@startuml ui-hooks
+package "React Hooks Layer" {
+
+class useWebRTCCall {
+  -engine: RtcEngine
+  -callState: CallState
+  -participants: Participant[]
+  -error: WebRTCError | null
+  -localStream: MediaStream | null
+  -remoteStreams: Map<string, MediaStream>
+  
+  +joinCall(roomId: string): Promise<void>
+  +leaveCall(): Promise<void>
+  +toggleVideo(): Promise<void>
+  +toggleAudio(): Promise<void>
+  +switchCamera(): Promise<void>
+  
+  <<returns>> {
+    callState: CallState,
+    participants: Participant[],
+    error: WebRTCError | null,
+    localStream: MediaStream | null,
+    remoteStreams: MediaStream[],
+    actions: CallActions
+  }
+}
+
+class useMediaDevices {
+  -deviceList: MediaDeviceInfo[]
+  -selectedDevices: SelectedDevices
+  -permissions: MediaPermissions
+  -enumerationError: Error | null
+  
+  +enumerateDevices(): Promise<MediaDeviceInfo[]>
+  +requestPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +switchCameraDevice(deviceId: string): Promise<void>
+  +switchMicDevice(deviceId: string): Promise<void>
+  +startScreenShare(): Promise<void>
+  +stopScreenShare(): void
+  
+  <<returns>> {
+    devices: MediaDeviceInfo[],
+    selectedDevices: SelectedDevices,
+    permissions: MediaPermissions,
+    error: Error | null,
+    actions: DeviceActions
+  }
+}
+
+class useCallQuality {
+  -metrics: QualityMetrics
+  -networkStatus: NetworkStatus
+  -qualityMode: QualityMode
+  -isMonitoring: boolean
+  
+  +startMonitoring(): void
+  +stopMonitoring(): void
+  +getRealtimeStats(): Promise<RTCStatsReport>
+  +forceQualityMode(mode: QualityMode): void
+  +resetToAutoMode(): void
+  
+  <<returns>> {
+    metrics: QualityMetrics,
+    networkStatus: NetworkStatus,
+    qualityMode: QualityMode,
+    isMonitoring: boolean,
+    controls: QualityControls
+  }
+}
+
+class useErrorHandling {
+  -errors: WebRTCError[]
+  -recoveryAttempts: Map<string, number>
+  -isRecovering: boolean
+  
+  +clearError(errorId: string): void
+  +clearAllErrors(): void
+  +retryLastOperation(): Promise<void>
+  +reportError(error: WebRTCError): void
+  +dismissError(errorId: string): void
+  
+  <<returns>> {
+    errors: WebRTCError[],
+    hasErrors: boolean,
+    isRecovering: boolean,
+    lastError: WebRTCError | null,
+    actions: ErrorActions
+  }
+}
+
+class useMobileLifecycle {
+  -appState: AppState
+  -networkState: NetworkState
+  -backgroundTime: number
+  -isCallActive: boolean
+  
+  +handleAppStateChange(state: AppStateStatus): void
+  +handleNetworkChange(isConnected: boolean): void
+  +pauseCallOnBackground(): void
+  +resumeCallOnForeground(): void
+  
+  <<returns>> {
+    appState: AppState,
+    networkState: NetworkState,
+    isInBackground: boolean,
+    backgroundDuration: number,
+    actions: LifecycleActions
+  }
+}
+
+class useDevPanel {
+  -debugMode: boolean
+  -simulatedConditions: NetworkConditions | null
+  -capturedLogs: LogEntry[]
+  -injectedErrors: WebRTCError[]
+  
+  +enableDebug(): void
+  +disableDebug(): void
+  +simulateNetworkCondition(condition: NetworkConditions): void
+  +injectError(error: WebRTCError): void
+  +exportLogs(): string
+  +clearLogs(): void
+  
+  <<returns>> {
+    debugMode: boolean,
+    simulatedConditions: NetworkConditions | null,
+    logs: LogEntry[],
+    controls: DevPanelControls
+  }
+}
+
+}
+
+package "Core Services" {
+  class RtcEngine
+  class MediaController  
+  class DegradationManager
+  class ErrorHandler
+}
+
+package "Infrastructure" {
+  class TelemetryProvider
+  class PerformanceMonitor
+  class Container
+}
+
+' Hook Dependencies (using different arrow types)
+useWebRTCCall --> RtcEngine : uses
+useWebRTCCall ..> ErrorHandler : subscribes
+useWebRTCCall ..> TelemetryProvider : tracks
+
+useMediaDevices --> MediaController : controls
+useMediaDevices ..> ErrorHandler : reports
+
+useCallQuality --> DegradationManager : monitors
+useCallQuality ..> PerformanceMonitor : reads
+
+useErrorHandling --> ErrorHandler : manages
+useErrorHandling ..> TelemetryProvider : reports
+
+useMobileLifecycle ..> RtcEngine : notifies
+useMobileLifecycle ..> MediaController : controls
+
+useDevPanel --> Container : inspects
+useDevPanel ..> RtcEngine : injects
+
+' Hook Interactions
+useWebRTCCall ..> useErrorHandling : shares errors
+useWebRTCCall ..> useCallQuality : receives quality
+useMediaDevices ..> useErrorHandling : reports errors
+useMobileLifecycle ..> useWebRTCCall : lifecycle events
+
+note top of useDevPanel : **Development Only**\nRemoved in production builds
+note bottom of useMobileLifecycle : **Platform Specific**\nReact Native implementation
+note right of useWebRTCCall : **Primary Hook**\nOrchestrates call lifecycle
+@enduml
+
+@startuml wrapper-structure
+abstract class BaseWrapper {
+  #engine: RtcEngine
+  #errorHandler: ErrorHandler
+  #telemetry: TelemetryProvider
+  #config: WrapperConfig
+  
+  +initialize(config: WrapperConfig): Promise<void>
+  +{abstract} requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +{abstract} handleLifecycleEvent(event: LifecycleEvent): void
+  +{abstract} enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +{abstract} optimizeForPlatform(): void
+  
+  #onError(error: WebRTCError): void
+  #trackEvent(event: string, properties: any): void
+  #{abstract} getPlatformCapabilities(): PlatformCapabilities
+}
+
+class WebWrapper extends BaseWrapper {
+  -visibilityChangeHandler: EventListener
+  -deviceChangeHandler: EventListener
+  -beforeUnloadHandler: EventListener
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupBrowserOptimizations(): void
+  +handleTabVisibility(): void
+  +preventAccidentalClose(): void
+  
+  -onVisibilityChange(): void
+  -onDeviceChange(): void
+  -onBeforeUnload(event: BeforeUnloadEvent): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class ReactNativeWrapper extends BaseWrapper {
+  -appStateSubscription: AppStateSubscription
+  -netInfoSubscription: NetInfoSubscription
+  -audioSessionManager: AudioSessionManager
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupAudioSession(): Promise<void>
+  +handleAppStateChange(nextState: AppStateStatus): void
+  +handleNetworkChange(state: NetInfoState): void
+  +setupProximityDetection(): void
+  
+  -onAppStateChange(nextState: AppStateStatus): void
+  -onNetworkStateChange(state: NetInfoState): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class iOSWrapper extends BaseWrapper {
+  -callKitProvider: CXProvider
+  -audioSession: AVAudioSession
+  -backgroundTaskId: UIBackgroundTaskIdentifier
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupCallKit(): Promise<void>
+  +configureAudioSession(): Promise<void>
+  +handleCallKitActions(): void
+  +requestBackgroundTask(): UIBackgroundTaskIdentifier
+  
+  -onCallKitAction(action: CXAction): void
+  -onAudioSessionInterruption(): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class AndroidWrapper extends BaseWrapper {
+  -connectionService: ConnectionService
+  -audioManager: AudioManager
+  -wakeLock: PowerManager.WakeLock
+  -foregroundService: ForegroundService
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupConnectionService(): Promise<void>
+  +startForegroundService(): void
+  +acquireWakeLock(): void
+  +handleTelecomActions(): void
+  
+  -onConnectionServiceAction(action: Connection.Action): void
+  -onAudioFocusChange(focusChange: int): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+class FlutterWrapper extends BaseWrapper {
+  -methodChannel: MethodChannel
+  -eventChannel: EventChannel
+  -platformVersion: String
+  
+  +requestMediaPermissions(constraints: MediaStreamConstraints): Promise<void>
+  +handleLifecycleEvent(event: LifecycleEvent): void
+  +enumerateMediaDevices(): Promise<MediaDeviceInfo[]>
+  +optimizeForPlatform(): void
+  
+  +setupMethodChannels(): void
+  +handlePlatformMessages(): void
+  +bridgeToNative(method: string, args: any): Promise<any>
+  
+  -onMethodCall(call: MethodCall): void
+  #getPlatformCapabilities(): PlatformCapabilities
+}
+
+enum LifecycleEvent {
+  APP_FOREGROUND
+  APP_BACKGROUND
+  NETWORK_CONNECTED
+  NETWORK_DISCONNECTED
+  DEVICE_ROTATION
+  AUDIO_ROUTE_CHANGED
+  CALL_INTERRUPTED
+}
+
+interface PlatformCapabilities {
+  +hasCamera: boolean
+  +hasMicrophone: boolean
+  +supportsCameraSwitching: boolean
+  +supportsScreenShare: boolean
+  +supportsBackgroundAudio: boolean
+  +maxVideoResolution: VideoResolution
+  +supportedCodecs: AudioVideoCodec[]
+}
+
+interface WrapperConfig {
+  +platformOptimizations: boolean
+  +backgroundModeEnabled: boolean
+  +debugMode: boolean
+  +telemetryEnabled: boolean
+}
+
+class WrapperFactory {
+  +{static} createWrapper(platform: Platform): BaseWrapper
+  +{static} detectPlatform(): Platform
+  -{static} validatePlatformSupport(platform: Platform): boolean
+}
+
+' Inheritance relationships
+WebWrapper --|> BaseWrapper
+ReactNativeWrapper --|> BaseWrapper
+iOSWrapper --|> BaseWrapper
+AndroidWrapper --|> BaseWrapper
+FlutterWrapper --|> BaseWrapper
+
+' Composition and usage
+BaseWrapper o-- PlatformCapabilities : defines
+BaseWrapper ..> LifecycleEvent : handles
+BaseWrapper ..> WrapperConfig : uses
+
+' Factory pattern
+WrapperFactory ..> WebWrapper : creates
+WrapperFactory ..> ReactNativeWrapper : creates
+WrapperFactory ..> iOSWrapper : creates
+WrapperFactory ..> AndroidWrapper : creates
+WrapperFactory ..> FlutterWrapper : creates
+
+note top of BaseWrapper : **Template Method Pattern**\nDefines common lifecycle
+note bottom of WrapperFactory : **Factory Pattern**\nPlatform detection & creation
+note right of WebWrapper : **Browser Specific**\nTab visibility, device enumeration
+note right of ReactNativeWrapper : **Cross-Platform Mobile**\nAppState, NetInfo integration
+note left of iOSWrapper : **iOS Native**\nCallKit, AVAudioSession
+note left of AndroidWrapper : **Android Native**\nConnectionService, ForegroundService
+@enduml
+
+@startuml error-handling
+package "Error Type Hierarchy" {
+  abstract class WebRTCError {
+    +code: WebRTCErrorCode
+    +message: string
+    +timestamp: Date
+    +metadata: ErrorMetadata
+    +recoverable: boolean
+    +userMessage: string
+    +stackTrace: string
+    
+    +toJSON(): ErrorJSON
+    +toString(): string
+    +getRecoveryActions(): RecoveryAction[]
+    +isSimilarTo(other: WebRTCError): boolean
+  }
+
+  class MediaError extends WebRTCError {
+    +deviceId: string
+    +constraints: MediaStreamConstraints
+    +permissionState: PermissionState
+    
+    +getPermissionGuidance(): PermissionGuidance
+    +suggestAlternativeDevice(): MediaDeviceInfo | null
+  }
+
+  class ConnectionError extends WebRTCError {
+    +connectionState: RTCConnectionState
+    +iceConnectionState: RTCIceConnectionState
+    +signalingState: RTCSignalingState
+    +attemptNumber: number
+    
+    +shouldRetry(): boolean
+    +getRetryDelay(): number
+    +canFallbackToRelay(): boolean
+  }
+
+  class SignalingError extends WebRTCError {
+    +websocketState: WebSocketState
+    +lastMessageTime: Date
+    +reconnectAttempts: number
+    +serverResponse: string
+    
+    +shouldReconnect(): boolean
+    +getReconnectStrategy(): ReconnectStrategy
+  }
+
+  class NetworkError extends WebRTCError {
+    +networkType: NetworkType
+    +bandwidth: number
+    +latency: number
+    +packetLoss: number
+    
+    +suggestFallbackMode(): QualityMode
+    +estimateRecoveryTime(): number
+  }
+
+  class PlatformError extends WebRTCError {
+    +platform: Platform
+    +browserVersion: string
+    +capabilities: PlatformCapabilities
+    
+    +getCompatibilityInfo(): CompatibilityInfo
+    +suggestPlatformUpgrade(): UpgradeInfo
+  }
+}
+
+package "Error Handling Infrastructure" {
+  class ErrorHandler {
+    -errorListeners: Map<WebRTCErrorCode, ErrorListener[]>
+    -recoveryStrategies: Map<WebRTCErrorCode, RecoveryStrategy>
+    -errorHistory: ErrorHistoryEntry[]
+    -telemetry: TelemetryProvider
+    -maxRetryAttempts: number
+    
+    +handleError(error: WebRTCError): Promise<void>
+    +registerListener(code: WebRTCErrorCode, listener: ErrorListener): void
+    +unregisterListener(code: WebRTCErrorCode, listener: ErrorListener): void
+    +setRecoveryStrategy(code: WebRTCErrorCode, strategy: RecoveryStrategy): void
+    +getErrorHistory(): ErrorHistoryEntry[]
+    +clearErrorHistory(): void
+    
+    -notifyListeners(error: WebRTCError): void
+    -attemptRecovery(error: WebRTCError): Promise<RecoveryResult>
+    -logError(error: WebRTCError): void
+    -shouldRetry(error: WebRTCError): boolean
+  }
+
+  interface RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+  }
+
+  class MediaPermissionRecovery implements RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -showPermissionDialog(): Promise<boolean>
+    -requestPermissionsAgain(): Promise<void>
+  }
+
+  class ConnectionRetryRecovery implements RecoveryStrategy {
+    -maxRetries: number
+    -backoffMultiplier: number
+    
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -calculateBackoffDelay(attempt: number): number
+    -resetConnection(): Promise<void>
+  }
+
+  class NetworkAdaptationRecovery implements RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -adaptToNetworkConditions(): Promise<void>
+    -triggerFallbackMode(): Promise<void>
+  }
+
+  class SignalingReconnectRecovery implements RecoveryStrategy {
+    +canRecover(error: WebRTCError): boolean
+    +recover(error: WebRTCError, context: RecoveryContext): Promise<RecoveryResult>
+    +getEstimatedRecoveryTime(): number
+    +getPriority(): number
+    
+    -reconnectWithExponentialBackoff(): Promise<void>
+    -validateServerConnection(): Promise<boolean>
+  }
+}
+
+package "Error Flow Control" {
+  class ErrorAggregator {
+    -errorBuffer: WebRTCError[]
+    -aggregationWindow: number
+    -similarityThreshold: number
+    
+    +addError(error: WebRTCError): void
+    +getAggregatedErrors(): AggregatedError[]
+    +flushBuffer(): void
+    
+    -groupSimilarErrors(): Map<string, WebRTCError[]>
+    -createAggregatedError(errors: WebRTCError[]): AggregatedError
+  }
+
+  class ErrorReporter {
+    -telemetry: TelemetryProvider
+    -errorQueue: WebRTCError[]
+    -reportingInterval: number
+    
+    +reportError(error: WebRTCError): void
+    +reportRecovery(recovery: RecoveryResult): void
+    +flushErrorQueue(): Promise<void>
+    
+    -enrichErrorWithContext(error: WebRTCError): EnrichedError
+    -shouldReportImmediately(error: WebRTCError): boolean
+  }
+
+  class UserNotificationManager {
+    -notificationQueue: ErrorNotification[]
+    -suppressionRules: SuppressionRule[]
+    
+    +showErrorToUser(error: WebRTCError): void
+    +showRecoveryProgress(recovery: RecoveryResult): void
+    +suppressSimilarErrors(pattern: ErrorPattern): void
+    
+    -createUserFriendlyMessage(error: WebRTCError): string
+    -shouldSuppressNotification(error: WebRTCError): boolean
+  }
+}
+
+enum WebRTCErrorCode {
+  MEDIA_ACCESS_DENIED
+  MEDIA_DEVICE_NOT_FOUND
+  MEDIA_OVERCONSTRAINED
+  CONNECTION_FAILED
+  CONNECTION_TIMEOUT
+  ICE_CONNECTION_FAILED
+  SIGNALING_DISCONNECTED
+  SIGNALING_AUTH_FAILED
+  NETWORK_UNAVAILABLE
+  BANDWIDTH_INSUFFICIENT
+  PLATFORM_NOT_SUPPORTED
+  BROWSER_NOT_COMPATIBLE
+}
+
+enum RecoveryResult {
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILURE
+  RETRY_LATER
+  NOT_RECOVERABLE
+}
+
+' Error type inheritance
+MediaError --|> WebRTCError
+ConnectionError --|> WebRTCError
+SignalingError --|> WebRTCError
+NetworkError --|> WebRTCError
+PlatformError --|> WebRTCError
+
+' Error handling relationships
+ErrorHandler *-- RecoveryStrategy
+ErrorHandler --> WebRTCError
+ErrorHandler ..> ErrorAggregator : uses
+ErrorHandler ..> ErrorReporter : uses
+ErrorHandler ..> UserNotificationManager : uses
+
+' Recovery strategy implementations
+MediaPermissionRecovery ..|> RecoveryStrategy
+ConnectionRetryRecovery ..|> RecoveryStrategy
+NetworkAdaptationRecovery ..|> RecoveryStrategy
+SignalingReconnectRecovery ..|> RecoveryStrategy
+
+' Error flow
+ErrorHandler --> RecoveryResult
+ErrorReporter ..> WebRTCError : reports
+UserNotificationManager ..> WebRTCError : displays
+
+note top of WebRTCError : **Base Error Class**\nAll errors extend this
+note bottom of ErrorHandler : **Central Error Management**\nHandles all error types
+note right of RecoveryStrategy : **Strategy Pattern**\nPluggable recovery mechanisms
+note left of ErrorAggregator : **Prevents Error Spam**\nGroups similar errors
+@enduml
+
+@startuml telemetry-flow
+participant "SDK Component" as Component
+participant "TelemetryService" as Service
+participant "EventQueue" as Queue
+participant "TelemetryProvider" as Provider
+participant "Analytics Backend" as Backend
+
+activate Component
+
+note over Component: User action or system event occurs
+
+Component -> Service: trackEvent(name, properties)
+activate Service
+
+Service -> Service: enrichWithContext(event)
+note right: Add session ID, user ID,\ntimestamp, SDK version
+
+Service -> Service: validateEvent(enrichedEvent)
+alt Event validation passes
+  Service -> Queue: enqueue(validatedEvent)
+  activate Queue
+  
+  Queue -> Queue: checkBatchSize()
+  alt Batch size reached OR timeout
+    Queue -> Provider: sendBatch(events[])
+    activate Provider
+    
+    Provider -> Provider: formatForBackend(events)
+    
+    par Send to multiple backends
+      Provider -> Backend: POST /analytics/events
+      activate Backend
+      Backend --> Provider: 200 OK
+      deactivate Backend
+    and
+      Provider -> Backend: Amplitude API
+      activate Backend  
+      Backend --> Provider: Success
+      deactivate Backend
+    and
+      Provider -> Backend: Mixpanel API
+      activate Backend
+      Backend --> Provider: Success  
+      deactivate Backend
+    end
+    
+    Provider --> Queue: BatchResult
+    deactivate Provider
+    
+    Queue -> Queue: clearSentEvents()
+    Queue --> Service: Success
+  else
+    Queue --> Service: Queued
+  end
+  deactivate Queue
+  
+  Service --> Component: Success
+else
+  Service --> Component: ValidationError
+end
+
+deactivate Service
+
+note over Component, Backend: **Error Handling & Retry Logic**
+
+Component -> Service: trackError(error, context)
+activate Service
+
+Service -> Service: enrichErrorWithStack(error)
+Service -> Queue: enqueue(errorEvent, priority: HIGH)
+activate Queue
+
+Queue -> Queue: prioritizeErrorEvents()
+Queue -> Provider: sendImmediately(errorEvent)
+activate Provider
+
+Provider -> Backend: POST /errors
+activate Backend
+alt Backend responds successfully
+  Backend --> Provider: 200 OK
+else Backend is down
+  Backend --> Provider: 500 Error
+  Provider -> Provider: scheduleRetry(event, backoff)
+end
+deactivate Backend
+
+Provider --> Queue: Result
+deactivate Provider
+Queue --> Service: Result
+deactivate Queue
+Service --> Component: Result
+deactivate Service
+
+note over Component, Backend: **Performance Metrics Flow**
+
+Component -> Service: trackPerformance(metric, value, unit)
+activate Service
+
+Service -> Service: validateMetricValue(value)
+Service -> Service: addPerformanceContext(metric)
+
+Service -> Queue: enqueue(performanceEvent)
+activate Queue
+
+Queue -> Provider: sendBatch(performanceEvents)
+activate Provider
+
+Provider -> Provider: aggregateMetrics(events)
+Provider -> Backend: POST /metrics/performance
+activate Backend
+Backend --> Provider: 200 OK
+deactivate Backend
+
+Provider --> Queue: Success
+deactivate Provider
+Queue --> Service: Success
+deactivate Queue
+Service --> Component: Success
+deactivate Service
+
+deactivate Component
+
+note over Service, Provider: **Telemetry Architecture Details**
+
+class TelemetryService {
+  -providers: TelemetryProvider[]
+  -eventQueue: EventQueue
+  -sessionManager: SessionManager
+  -contextEnricher: ContextEnricher
+  
+  +trackEvent(name: string, properties: any): void
+  +trackError(error: Error, context: any): void
+  +trackPerformance(metric: string, value: number, unit: string): void
+  +setUser(userId: string, properties: any): void
+  +flush(): Promise<void>
+  
+  -enrichEvent(event: TelemetryEvent): EnrichedEvent
+  -validateEvent(event: TelemetryEvent): boolean
+}
+
+class EventQueue {
+  -events: TelemetryEvent[]
+  -batchSize: number
+  -flushInterval: number
+  -retryQueue: FailedEvent[]
+  
+  +enqueue(event: TelemetryEvent): void
+  +flush(): Promise<void>
+  +retry(failedEvent: FailedEvent): Promise<void>
+  
+  -shouldFlush(): boolean
+  -createBatch(): TelemetryEvent[]
+}
+
+interface TelemetryProvider {
+  +sendEvent(event: TelemetryEvent): Promise<void>
+  +sendBatch(events: TelemetryEvent[]): Promise<void>
+  +configure(config: ProviderConfig): void
+}
+
+class AmplitudeProvider implements TelemetryProvider {
+  -apiKey: string
+  -httpClient: HttpClient
+  
+  +sendEvent(event: TelemetryEvent): Promise<void>
+  +sendBatch(events: TelemetryEvent[]): Promise<void>
+  +configure(config: AmplitudeConfig): void
+  
+  -formatAmplitudeEvent(event: TelemetryEvent): AmplitudeEvent
+}
+
+class MixpanelProvider implements TelemetryProvider {
+  -token: string
+  -httpClient: HttpClient
+  
+  +sendEvent(event: TelemetryEvent): Promise<void>
+  +sendBatch(events: TelemetryEvent[]): Promise<void>
+  +configure(config: MixpanelConfig): void
+  
+  -formatMixpanelEvent(event: TelemetryEvent): MixpanelEvent
+}
+
+class CustomProvider implements TelemetryProvider {
+  -endpoint: string
+  -apiKey: string
+  -httpClient: HttpClient
+  
+  +sendEvent(event: TelemetryEvent): Promise<void>
+  +sendBatch(events: TelemetryEvent[]): Promise<void>
+  +configure(config: CustomConfig): void
+  
+  -formatCustomEvent(event: TelemetryEvent): CustomEvent
+}
+
+' Service relationships
+TelemetryService *-- EventQueue
+TelemetryService o-- TelemetryProvider
+EventQueue ..> TelemetryProvider : sends to
+
+' Provider implementations
+AmplitudeProvider ..|> TelemetryProvider
+MixpanelProvider ..|> TelemetryProvider
+CustomProvider ..|> TelemetryProvider
+
+note right of TelemetryService : **Central Telemetry Hub**\nManages all analytics
+note bottom of EventQueue : **Reliable Event Delivery**\nBatching, retry, and ordering
+note left of TelemetryProvider : **Multi-Provider Support**\nSend to multiple backends
+@enduml
+
+@startuml sdk-package-map
+package "nextrtc/" {
+  
+  package "packages/" as Packages {
+    
+    package "client-core/" as Core #FFE6E6 {
+      file "RtcEngine.ts"
+      file "SignalingClient.ts" 
+      file "MediaController.ts"
+      file "DegradationManager.ts"
+      file "index.ts"
+      file "package.json" as CorePkg
+    }
+    
+    package "wrapper-web/" as WebWrapper #E6F3FF {
+      file "WebWrapper.ts"
+      file "BrowserOptimizations.ts"
+      file "WebRTCUtils.ts" 
+      file "index.ts"
+      file "package.json" as WebPkg
+    }
+    
+    package "wrapper-react-native/" as RNWrapper #E6FFE6 {
+      file "ReactNativeWrapper.ts"
+      file "AppStateManager.ts"
+      file "AudioSessionManager.ts"
+      file "index.ts" 
+      file "package.json" as RNPkg
+    }
+    
+    package "wrapper-ios/" as iOSWrapper #FFF0E6 {
+      file "iOSWrapper.ts"
+      file "CallKitIntegration.ts"
+      file "AVAudioSessionManager.ts"
+      file "index.ts"
+      file "package.json" as iOSPkg
+    }
+    
+    package "wrapper-android/" as AndroidWrapper #F0E6FF {
+      file "AndroidWrapper.ts"
+      file "ConnectionServiceManager.ts"
+      file "ForegroundServiceManager.ts"
+      file "index.ts"
+      file "package.json" as AndroidPkg
+    }
+    
+    package "ui-react/" as UIReact #FFE6F3 {
+      file "hooks/"
+      file "components/"
+      file "CallLayout.tsx"
+      file "QualityIndicator.tsx"
+      file "index.ts"
+      file "package.json" as UIReactPkg
+    }
+    
+    package "ui-react-native/" as UIRN #E6FFF0 {
+      file "hooks/"
+      file "components/"
+      file "MobileCallLayout.tsx"
+      file "NativeControls.tsx"
+      file "index.ts"
+      file "package.json" as UIRNPkg
+    }
+    
+    package "error-handling/" as ErrorHandling #FFCCCC {
+      file "ErrorHandler.ts"
+      file "RecoveryStrategies.ts"
+      file "ErrorTypes.ts"
+      file "index.ts"
+      file "package.json" as ErrorPkg
+    }
+    
+    package "telemetry/" as Telemetry #CCFFCC {
+      file "TelemetryService.ts"
+      file "providers/"
+      file "EventQueue.ts"
+      file "index.ts"
+      file "package.json" as TelemetryPkg
+    }
+    
+    package "container/" as Container #CCCCFF {
+      file "DIContainer.ts"
+      file "ServiceRegistry.ts"
+      file "index.ts"
+      file "package.json" as ContainerPkg
+    }
+    
+    package "performance/" as Performance #FFFFCC {
+      file "PerformanceMonitor.ts"
+      file "MetricsCollector.ts"
+      file "index.ts"
+      file "package.json" as PerfPkg
+    }
+    
+    package "devtools/" as DevTools #FFCCFF {
+      file "DevPanel.tsx"
+      file "NetworkSimulator.ts"
+      file "DebugLogger.ts"
+      file "index.ts"
+      file "package.json" as DevPkg
+    }
+  }
+  
+  package "apps/" as Apps {
+    package "demo-web/" as DemoWeb {
+      file "src/"
+      file "vite.config.ts"
+      file "package.json" as DemoWebPkg
+    }
+    
+    package "demo-mobile/" as DemoMobile {
+      file "src/"
+      file "metro.config.js"
+      file "package.json" as DemoMobilePkg
+    }
+    
+    package "docs/" as Docs {
+      file "src/"
+      file "docusaurus.config.js"
+      file "package.json" as DocsPkg
+    }
+    
+    package "storybook/" as Storybook {
+      file "stories/"
+      file ".storybook/"
+      file "package.json" as StorybookPkg
+    }
+  }
+  
+  package "shared/" as Shared {
+    package "public/" as SharedPublic #E0E0E0 {
+      file "types/"
+      file "constants/"
+      file "interfaces/"
+      file "package.json" as PublicPkg
+    }
+    
+    package "internal/" as SharedInternal #D0D0D0 {
+      file "utils/"
+      file "test-utils/"
+      file "package.json" as InternalPkg
+    }
+    
+    package "contracts/" as Contracts #C0C0C0 {
+      file "api-contracts.ts"
+      file "version-contracts.ts"
+      file "package.json" as ContractsPkg
+    }
+  }
+  
+  file "package.json" as RootPkg
+  file "yarn.lock"
+  file "tsconfig.json"
+  file "turbo.json"
+}
+
+' Package Dependencies (Core Dependencies)
+WebWrapper --> Core : depends on
+RNWrapper --> Core : depends on  
+iOSWrapper --> Core : depends on
+AndroidWrapper --> Core : depends on
+
+UIReact --> WebWrapper : depends on
+UIRN --> RNWrapper : depends on
+
+' Infrastructure Dependencies 
+Core --> ErrorHandling : depends on
+Core --> Telemetry : depends on
+Core --> Container : depends on
+Core --> Performance : depends on
+
+' Cross-package Dependencies
+UIReact --> SharedPublic : depends on
+UIRN --> SharedPublic : depends on
+Core --> SharedPublic : depends on
+
+ErrorHandling --> SharedPublic : depends on
+Telemetry --> SharedPublic : depends on
+
+' Development Dependencies
+DevTools --> Core : depends on
+DevTools --> UIReact : depends on
+
+' App Dependencies
+DemoWeb --> UIReact : depends on
+DemoWeb --> WebWrapper : depends on
+DemoMobile --> UIRN : depends on  
+DemoMobile --> RNWrapper : depends on
+
+Storybook --> UIReact : depends on
+Storybook --> UIRN : depends on
+
+' Shared Internal Dependencies
+Core --> SharedInternal : depends on
+WebWrapper --> SharedInternal : depends on
+RNWrapper --> SharedInternal : depends on
+
+' Package Versioning Strategy
+note top of Core : **@nextrtc/client-core**\nv1.0.0 - Stable API
+note top of UIReact : **@nextrtc/ui-react**\nv1.0.0 - Stable Components  
+note top of ErrorHandling : **@nextrtc/error-handling**\nv1.0.0 - Stable Infrastructure
+note top of SharedPublic : **@nextrtc/shared**\nv1.0.0 - Public Contracts
+note bottom of DevTools : **@nextrtc/devtools**\nv0.1.0 - Development Only
+
+' Build Order Dependencies
+note left of RootPkg : **Yarn Workspaces**\nMonorepo package management\nShared dependencies hoisting\nBuild orchestration with Turbo
+
+' Package Manager Configuration
+note right of RootPkg : **Build Order:**\n1. shared/public\n2. shared/internal\n3. client-core\n4. infrastructure packages\n5. wrapper packages\n6. ui packages\n7. apps
+@enduml
+
+@startuml advanced-testing
+package "Advanced Testing Infrastructure" as TestingLayer #F0F0FF {
+  class TestOrchestrator {
+    -testSuites: Map<string, TestSuite>
+    -testEnvironments: TestEnvironment[]
+    -reportGenerator: ReportGenerator
+    -ciIntegration: CIIntegration
+    
+    +runAllTests(): Promise<TestResults>
+    +runTestSuite(suite: string): Promise<TestResult>
+    +generateReport(results: TestResults): Promise<TestReport>
+    +setupContinuousIntegration(): void
+    
+    -parallelizeTests(tests: Test[]): Promise<TestResult[]>
+    -collectCoverage(): Promise<CoverageReport>
+  }
+
+  class VisualRegressionTester {
+    -screenshotEngine: ScreenshotEngine
+    -imageComparator: ImageComparator
+    -baselineManager: BaselineManager
+    
+    +captureScreenshots(components: UIComponent[]): Promise<Screenshot[]>
+    +compareWithBaseline(current: Screenshot, baseline: Screenshot): ComparisonResult
+    +updateBaselines(screenshots: Screenshot[]): Promise<void>
+    +detectVisualRegressions(): Promise<RegressionReport>
+    
+    -generatePixelDiff(image1: Screenshot, image2: Screenshot): PixelDiffResult
+    -identifySignificantChanges(diff: PixelDiffResult): boolean
+  }
+
+  class LoadTester {
+    -loadGenerator: LoadGenerator
+    -metricsCollector: MetricsCollector
+    -scalabilityAnalyzer: ScalabilityAnalyzer
+    
+    +simulateConcurrentUsers(userCount: number): Promise<LoadTestResult>
+    +testBandwidthLimits(limits: BandwidthLimit[]): Promise<BandwidthTestResult>
+    +stressTestSignaling(connections: number): Promise<StressTestResult>
+    +profileMemoryUsage(duration: number): Promise<MemoryProfile>
+    
+    -generateUserScenarios(count: number): UserScenario[]
+    -analyzePerformanceBottlenecks(metrics: PerformanceMetrics): Bottleneck[]
+  }
+
+  class ChaosEngineer {
+    -faultInjector: FaultInjector
+    -networkSimulator: NetworkSimulator
+    -failureScenarios: FailureScenario[]
+    
+    +injectNetworkFailure(type: NetworkFailureType): Promise<ChaosResult>
+    +simulateServerOutage(duration: number): Promise<OutageResult>
+    +injectRandomFailures(probability: number): Promise<ChaosTestResult>
+    +testRecoveryMechanisms(): Promise<RecoveryTestResult>
+    
+    -createFailureScenario(type: FailureType): FailureScenario
+    -measureSystemResilience(results: ChaosResult[]): ResilienceScore
+  }
+
+  class CrossBrowserTester {
+    -browserMatrix: BrowserMatrix
+    -seleniumGrid: SeleniumGrid
+    -testAutomation: TestAutomation
+    
+    +runCrossBrowserTests(browsers: Browser[]): Promise<CompatibilityReport>
+    +testWebRTCSupport(browsers: Browser[]): Promise<SupportMatrix>
+    +validateUserFlows(flows: UserFlow[]): Promise<FlowTestResults>
+    
+    -setupBrowserEnvironments(browsers: Browser[]): Promise<void>
+    -executeTestsInParallel(tests: Test[], browsers: Browser[]): Promise<TestResult[]>
+  }
+
+  class PerformanceProfiler {
+    -cpuProfiler: CPUProfiler
+    -memoryProfiler: MemoryProfiler
+    -networkProfiler: NetworkProfiler
+    
+    +profileCPUUsage(duration: number): Promise<CPUProfile>
+    +profileMemoryLeaks(): Promise<MemoryLeakReport>
+    +profileNetworkActivity(): Promise<NetworkProfile>
+    +generatePerformanceReport(): Promise<PerformanceReport>
+    
+    -analyzeHotspots(profile: CPUProfile): Hotspot[]
+    -detectMemoryLeaks(profile: MemoryProfile): MemoryLeak[]
+  }
+
+  interface TestSuite {
+    +name: string
+    +tests: Test[]
+    +setup(): Promise<void>
+    +teardown(): Promise<void>
+    +run(): Promise<TestResult>
+  }
+
+  interface Test {
+    +name: string
+    +description: string
+    +execute(): Promise<TestResult>
+    +cleanup(): Promise<void>
+  }
+
+  enum NetworkFailureType {
+    PACKET_LOSS
+    HIGH_LATENCY
+    BANDWIDTH_THROTTLING
+    CONNECTION_DROP
+    DNS_FAILURE
+  }
+}
+
+' Testing relationships
+TestOrchestrator *-- VisualRegressionTester
+TestOrchestrator *-- LoadTester
+TestOrchestrator *-- ChaosEngineer
+TestOrchestrator *-- CrossBrowserTester
+TestOrchestrator *-- PerformanceProfiler
+TestOrchestrator o-- TestSuite
+@enduml
+
+@startuml plugin-architecture
+package "Plugin Architecture & Event Sourcing" as PluginLayer #FFE6FF {
+  class PluginManager {
+    -registeredPlugins: Map<string, Plugin>
+    -pluginRegistry: PluginRegistry
+    -lifecycleManager: PluginLifecycleManager
+    -dependencyResolver: DependencyResolver
+    
+    +registerPlugin(plugin: Plugin): Promise<void>
+    +unregisterPlugin(pluginId: string): Promise<void>
+    +loadPlugin(manifest: PluginManifest): Promise<Plugin>
+    +enablePlugin(pluginId: string): Promise<void>
+    +disablePlugin(pluginId: string): Promise<void>
+    
+    -validatePlugin(plugin: Plugin): ValidationResult
+    -resolveDependencies(plugin: Plugin): Promise<void>
+    -isolatePluginExecution(plugin: Plugin): PluginSandbox
+  }
+
+  interface Plugin {
+    +id: string
+    +name: string
+    +version: string
+    +dependencies: PluginDependency[]
+    +hooks: PluginHook[]
+    
+    +initialize(context: PluginContext): Promise<void>
+    +activate(): Promise<void>
+    +deactivate(): Promise<void>
+    +destroy(): Promise<void>
+  }
+
+  class EventSourcingEngine {
+    -eventStore: EventStore
+    -eventBus: EventBus
+    -snapshotManager: SnapshotManager
+    -replayEngine: ReplayEngine
+    
+    +appendEvent(event: DomainEvent): Promise<void>
+    +getEvents(aggregateId: string): Promise<DomainEvent[]>
+    +replayEvents(aggregateId: string, fromVersion?: number): Promise<AggregateRoot>
+    +createSnapshot(aggregateId: string): Promise<Snapshot>
+    
+    -validateEvent(event: DomainEvent): boolean
+    -publishEvent(event: DomainEvent): void
+    -handleEventConflicts(conflicts: EventConflict[]): Resolution
+  }
+
+  class CallAggregateRoot {
+    -id: string
+    -version: number
+    -uncommittedEvents: DomainEvent[]
+    -state: CallState
+    
+    +joinCall(participant: Participant): void
+    +leaveCall(participantId: string): void
+    +toggleMedia(participantId: string, mediaType: MediaType): void
+    +degradeQuality(mode: QualityMode): void
+    
+    +getUncommittedEvents(): DomainEvent[]
+    +markEventsAsCommitted(): void
+    +loadFromHistory(events: DomainEvent[]): void
+    
+    -applyEvent(event: DomainEvent): void
+    -addEvent(event: DomainEvent): void
+  }
+
+  abstract class DomainEvent {
+    +aggregateId: string
+    +eventId: string
+    +eventType: string
+    +timestamp: Date
+    +version: number
+    +metadata: EventMetadata
+    
+    +{abstract} apply(aggregate: AggregateRoot): void
+    +serialize(): string
+    +{static} deserialize(data: string): DomainEvent
+  }
+
+  class CallJoinedEvent extends DomainEvent {
+    +participant: Participant
+    +joinedAt: Date
+    
+    +apply(aggregate: CallAggregateRoot): void
+  }
+
+  class CallLeftEvent extends DomainEvent {
+    +participantId: string
+    +reason: LeaveReason
+    +leftAt: Date
+    
+    +apply(aggregate: CallAggregateRoot): void
+  }
+
+  class QualityDegradedEvent extends DomainEvent {
+    +fromMode: QualityMode
+    +toMode: QualityMode
+    +reason: DegradationReason
+    +metrics: NetworkMetrics
+    
+    +apply(aggregate: CallAggregateRoot): void
+  }
+
+  class PluginHookManager {
+    -hooks: Map<string, HookRegistry>
+    -middleware: PluginMiddleware[]
+    
+    +registerHook(name: string, handler: HookHandler): void
+    +executeHook(name: string, context: HookContext): Promise<HookResult>
+    +executeMiddleware(context: any): Promise<any>
+    
+    -validateHookRegistration(hook: PluginHook): boolean
+    -executeHooksInOrder(hooks: HookHandler[], context: HookContext): Promise<HookResult[]>
+  }
+
+  interface HookHandler {
+    +execute(context: HookContext): Promise<HookResult>
+    +priority: number
+    +enabled: boolean
+  }
+
+  interface PluginContext {
+    +sdk: NexRTCSDK
+    +config: PluginConfig
+    +logger: Logger
+    +eventBus: EventBus
+  }
+
+  enum PluginHookType {
+    BEFORE_CALL_JOIN
+    AFTER_CALL_JOIN
+    BEFORE_MEDIA_TOGGLE
+    AFTER_MEDIA_TOGGLE
+    ON_QUALITY_CHANGE
+    ON_ERROR_OCCURRED
+    BEFORE_CALL_END
+    AFTER_CALL_END
+  }
+}
+
+' Plugin Architecture relationships
+PluginManager o-- Plugin
+PluginManager *-- PluginHookManager
+EventSourcingEngine *-- CallAggregateRoot
+EventSourcingEngine o-- DomainEvent
+CallAggregateRoot --> DomainEvent
+CallJoinedEvent --|> DomainEvent
+CallLeftEvent --|> DomainEvent
+QualityDegradedEvent --|> DomainEvent
+PluginHookManager o-- HookHandler
+Plugin --> PluginContext
+@enduml
+
+' Package Manager Configuration
+@startuml enhanced-security
+package "Security Layer" as SecurityLayer #FFE6E6 {
+  class SecurityManager {
+    -encryptionEngine: EncryptionEngine
+    -tokenValidator: TokenValidator
+    -auditLogger: AuditLogger
+    -complianceChecker: ComplianceChecker
+    
+    +encryptMessage(message: any): Promise<EncryptedMessage>
+    +decryptMessage(encrypted: EncryptedMessage): Promise<any>
+    +validateToken(token: string): Promise<TokenValidation>
+    +logSecurityEvent(event: SecurityEvent): void
+    +checkCompliance(data: any): ComplianceResult
+    
+    -initializeE2E(): Promise<void>
+    -setupTransportSecurity(): void
+    -handleSecurityViolation(violation: SecurityViolation): void
+  }
+
+  class EncryptionEngine {
+    -keyManager: KeyManager
+    -algorithm: EncryptionAlgorithm
+    -e2eEnabled: boolean
+    
+    +generateKeyPair(): Promise<KeyPair>
+    +exchangeKeys(remotePublicKey: string): Promise<SharedSecret>
+    +encrypt(data: any, key: CryptoKey): Promise<EncryptedData>
+    +decrypt(encrypted: EncryptedData, key: CryptoKey): Promise<any>
+    +rotateKeys(): Promise<void>
+    
+    -deriveSharedSecret(publicKey: string): Promise<CryptoKey>
+    -validateKeyStrength(key: CryptoKey): boolean
+  }
+
+  class TokenValidator {
+    -jwksClient: JWKSClient
+    -tokenCache: Map<string, TokenInfo>
+    -refreshQueue: RefreshQueue
+    
+    +validateJWT(token: string): Promise<TokenValidation>
+    +refreshToken(refreshToken: string): Promise<TokenResponse>
+    +revokeToken(token: string): Promise<void>
+    +scheduleRefresh(token: string, expiresIn: number): void
+    
+    -verifySignature(token: string, key: CryptoKey): Promise<boolean>
+    -checkTokenExpiry(token: string): boolean
+    -handleTokenRefresh(token: string): Promise<string>
+  }
+
+  class AuditLogger {
+    -logStorage: LogStorage
+    -eventQueue: SecurityEvent[]
+    -complianceConfig: ComplianceConfig
+    
+    +logAuthAttempt(attempt: AuthAttempt): void
+    +logDataAccess(access: DataAccess): void
+    +logSecurityEvent(event: SecurityEvent): void
+    +generateAuditReport(timeRange: TimeRange): Promise<AuditReport>
+    +exportLogs(format: ExportFormat): Promise<string>
+    
+    -enrichEventWithContext(event: SecurityEvent): EnrichedSecurityEvent
+    -enforceRetentionPolicy(): void
+  }
+
+  class ComplianceChecker {
+    -gdprHandler: GDPRHandler
+    -hipaaHandler: HIPAAHandler
+    -ccpaHandler: CCPAHandler
+    -dataClassifier: DataClassifier
+    
+    +classifyData(data: any): DataClassification
+    +checkGDPRCompliance(operation: DataOperation): ComplianceResult
+    +checkHIPAACompliance(data: HealthData): ComplianceResult
+    +handleDataRequest(request: DataRequest): Promise<DataResponse>
+    +anonymizeData(data: any): AnonymizedData
+    
+    -applyDataMinimization(data: any): any
+    -validateConsentLevel(consent: ConsentLevel): boolean
+  }
+
+  enum SecurityEventType {
+    AUTH_SUCCESS
+    AUTH_FAILURE
+    DATA_ACCESS
+    ENCRYPTION_ERROR
+    TOKEN_REFRESH
+    COMPLIANCE_VIOLATION
+    SUSPICIOUS_ACTIVITY
+  }
+
+  interface SecurityEvent {
+    +type: SecurityEventType
+    +timestamp: Date
+    +userId: string
+    +sessionId: string
+    +details: any
+    +severity: SecuritySeverity
+    +source: string
+  }
+}
+
+' Security relationships
+SecurityManager *-- EncryptionEngine
+SecurityManager *-- TokenValidator
+SecurityManager *-- AuditLogger
+SecurityManager *-- ComplianceChecker
+SecurityManager --> SecurityEvent
+@enduml
+
+@startuml ai-analytics
+package "AI Analytics Layer" as AILayer #E6FFE6 {
+  class AIAnalyticsEngine {
+    -mlModels: Map<string, MLModel>
+    -dataProcessor: DataProcessor
+    -predictionService: PredictionService
+    -insights: InsightGenerator
+    
+    +predictQualityDegradation(metrics: NetworkMetrics): Promise<QualityPrediction>
+    +analyzeUserBehavior(events: UserEvent[]): Promise<BehaviorAnalysis>
+    +optimizeBandwidth(history: BandwidthHistory): Promise<OptimizationSuggestions>
+    +calculateBusinessImpact(callData: CallData): Promise<BusinessMetrics>
+    
+    -trainModel(modelType: string, data: TrainingData): Promise<MLModel>
+    -updatePredictions(): Promise<void>
+  }
+
+  class QualityPredictor {
+    -networkPatternModel: NetworkPatternModel
+    -qualityHistoryBuffer: QualityMetric[]
+    -predictionWindow: number
+    
+    +predictNextMinuteQuality(currentMetrics: NetworkMetrics): Promise<QualityForecast>
+    +identifyDegradationTriggers(history: QualityHistory): QualityTrigger[]
+    +recommendPreventiveActions(prediction: QualityForecast): PreventiveAction[]
+    
+    -analyzeNetworkPatterns(metrics: NetworkMetrics[]): NetworkPattern
+    -calculateConfidenceScore(prediction: any): number
+  }
+
+  class ChurnPredictor {
+    -behaviorModel: UserBehaviorModel
+    -churnIndicators: ChurnIndicator[]
+    -riskScorer: RiskScorer
+    
+    +calculateChurnRisk(user: UserProfile, sessions: CallSession[]): Promise<ChurnRisk>
+    +identifyAtRiskUsers(users: UserProfile[]): Promise<AtRiskUser[]>
+    +suggestRetentionActions(risk: ChurnRisk): RetentionAction[]
+    
+    -analyzeCallPatterns(sessions: CallSession[]): CallPattern
+    -detectAnomalousUsage(pattern: CallPattern): boolean
+  }
+
+  class BandwidthOptimizer {
+    -usageAnalyzer: UsageAnalyzer
+    -optimizationEngine: OptimizationEngine
+    -costCalculator: CostCalculator
+    
+    +analyzeBandwidthUsage(data: BandwidthData): BandwidthAnalysis
+    +optimizeSettings(usage: BandwidthUsage): OptimizedSettings
+    +calculateCostSavings(optimization: Optimization): CostSavings
+    +predictInfrastructureNeeds(growth: GrowthProjection): InfrastructureRecommendation
+    
+    -identifyWastage(usage: BandwidthUsage): BandwidthWastage[]
+    -optimizeCodecSelection(metrics: QualityMetrics): CodecRecommendation
+  }
+
+  class BusinessIntelligence {
+    -revenueAnalyzer: RevenueAnalyzer
+    -satisfactionTracker: SatisfactionTracker
+    -conversionAnalyzer: ConversionAnalyzer
+    
+    +analyzeRevenueImpact(callQuality: QualityMetrics, revenue: RevenueData): RevenueImpact
+    +trackSatisfactionTrends(feedback: UserFeedback[]): SatisfactionTrends
+    +analyzeConversionFunnels(sessions: CallSession[]): ConversionAnalysis
+    +generateExecutiveDashboard(): Promise<ExecutiveDashboard>
+    
+    -correlateTechnicalToRevenue(technical: TechnicalMetrics, business: BusinessMetrics): Correlation
+    -identifyGrowthOpportunities(data: BusinessData): GrowthOpportunity[]
+  }
+
+  interface MLModel {
+    +predict(input: any): Promise<Prediction>
+    +train(data: TrainingData): Promise<void>
+    +evaluate(testData: any): ModelPerformance
+    +getConfidence(): number
+  }
+
+  interface Prediction {
+    +value: any
+    +confidence: number
+    +timestamp: Date
+    +factors: PredictionFactor[]
+  }
+}
+
+' AI Analytics relationships
+AIAnalyticsEngine *-- QualityPredictor
+AIAnalyticsEngine *-- ChurnPredictor  
+AIAnalyticsEngine *-- BandwidthOptimizer
+AIAnalyticsEngine *-- BusinessIntelligence
+AIAnalyticsEngine o-- MLModel
+QualityPredictor --> Prediction
+ChurnPredictor --> Prediction
+@enduml
+
+@startuml accessibility-i18n
+package "Accessibility & I18n Layer" as A11yLayer #FFF0E6 {
+  class AccessibilityManager {
+    -screenReaderSupport: ScreenReaderSupport
+    -keyboardNavigation: KeyboardNavigation
+    -visualAccessibility: VisualAccessibility
+    -motorAccessibility: MotorAccessibility
+    
+    +initializeA11y(config: A11yConfig): Promise<void>
+    +announceCallState(state: CallState): void
+    +updateAriaLabels(component: UIComponent): void
+    +enableHighContrast(): void
+    +enableKeyboardMode(): void
+    
+    -checkA11yCompliance(component: UIComponent): A11yComplianceResult
+    -generateA11yReport(): A11yReport
+  }
+
+  class ScreenReaderSupport {
+    -ariaLiveRegion: HTMLElement
+    -announcements: AnnouncementQueue
+    -callStateMap: Map<CallState, string>
+    
+    +announceMessage(message: string, priority: Priority): void
+    +announceCallUpdate(update: CallUpdate): void
+    +announceQualityChange(quality: QualityMode): void
+    +announceParticipantChange(change: ParticipantChange): void
+    
+    -formatAnnouncementText(event: CallEvent): string
+    -manageAnnouncementQueue(): void
+  }
+
+  class KeyboardNavigation {
+    -focusManager: FocusManager
+    -shortcutRegistry: ShortcutRegistry
+    -tabOrder: TabOrderManager
+    
+    +registerShortcuts(shortcuts: Shortcut[]): void
+    +manageFocus(direction: FocusDirection): void
+    +handleEscapeKey(): void
+    +enableSkipLinks(): void
+    
+    -trapFocus(container: HTMLElement): void
+    -restoreFocus(previousElement: HTMLElement): void
+  }
+
+  class VisualAccessibility {
+    -contrastChecker: ContrastChecker
+    -fontScaler: FontScaler
+    -colorBlindSupport: ColorBlindSupport
+    
+    +applyHighContrast(): void
+    +scaleFonts(scale: number): void
+    +enableColorBlindMode(type: ColorBlindType): void
+    +validateContrast(element: HTMLElement): ContrastResult
+    
+    -adjustColorPalette(palette: ColorPalette): ColorPalette
+    -enhanceVisualCues(): void
+  }
+
+  class InternationalizationManager {
+    -languageDetector: LanguageDetector
+    -translator: Translator
+    -formatters: LocaleFormatters
+    -culturalAdapter: CulturalAdapter
+    
+    +initializeLocale(locale: string): Promise<void>
+    +translateText(key: string, params?: any): string
+    +formatDate(date: Date): string
+    +formatNumber(number: number): string
+    +adaptLayout(locale: string): void
+    
+    -loadTranslations(locale: string): Promise<Translations>
+    -detectUserLocale(): string
+    -handleRTLLanguages(): void
+  }
+
+  class LocalizationProvider {
+    -translationsCache: Map<string, Translations>
+    -fallbackChain: string[]
+    -interpolationEngine: InterpolationEngine
+    
+    +getTranslation(key: string, locale: string): string
+    +loadLocaleData(locale: string): Promise<LocaleData>
+    +validateTranslations(translations: Translations): ValidationResult
+    
+    -interpolateVariables(text: string, variables: any): string
+    -handleMissingTranslations(key: string): string
+  }
+
+  class CulturalAdapter {
+    -layoutManager: LayoutManager
+    -colorMeanings: Map<string, ColorMeaning>
+    -interactionPatterns: Map<string, InteractionPattern>
+    
+    +adaptForCulture(culture: string): CulturalAdaptation
+    +adjustColors(culture: string): ColorScheme
+    +adaptInteractions(culture: string): InteractionScheme
+    +handleLegalRequirements(region: string): LegalCompliance
+    
+    -detectCulturalPreferences(locale: string): CulturalPreferences
+    -applyRegionalSettings(region: string): void
+  }
+
+  enum ColorBlindType {
+    PROTANOPIA
+    DEUTERANOPIA  
+    TRITANOPIA
+    ACHROMATOPSIA
+  }
+
+  enum Priority {
+    LOW
+    MEDIUM
+    HIGH
+    URGENT
+  }
+}
+
+' A11y relationships
+AccessibilityManager *-- ScreenReaderSupport
+AccessibilityManager *-- KeyboardNavigation
+AccessibilityManager *-- VisualAccessibility
+InternationalizationManager *-- LocalizationProvider
+InternationalizationManager *-- CulturalAdapter
+@enduml
+
+@startuml edge-computing
+package "Edge Computing Layer" as EdgeLayer #E6F0FF {
+  class ServerDiscoveryManager {
+    -geoDetector: GeoDetector
+    -latencyTester: LatencyTester
+    -loadBalancer: ClientLoadBalancer
+    -healthMonitor: ServerHealthMonitor
+    
+    +discoverOptimalServers(userLocation: Location): Promise<ServerList>
+    +testServerLatencies(servers: Server[]): Promise<LatencyResults>
+    +selectBestServer(candidates: Server[]): Promise<Server>
+    +monitorServerHealth(): void
+    
+    -rankServersByPerformance(servers: Server[], metrics: PerformanceMetrics[]): Server[]
+    -handleServerFailover(failedServer: Server): Promise<Server>
+  }
+
+  class GeoDetector {
+    -ipGeolocation: IPGeolocationService
+    -browserGeolocation: GeolocationAPI
+    -timeZoneDetector: TimeZoneDetector
+    
+    +detectUserLocation(): Promise<UserLocation>
+    +findNearestRegions(location: Location): Region[]
+    +calculateDistance(point1: Location, point2: Location): number
+    
+    -combineLocationSources(): Location
+    -validateLocationAccuracy(location: Location): boolean
+  }
+
+  class LatencyTester {
+    -testEndpoints: Map<string, TestEndpoint>
+    -concurrentTests: number
+    -timeoutDuration: number
+    
+    +testRTT(server: Server): Promise<RTTResult>
+    +testBandwidth(server: Server): Promise<BandwidthResult>
+    +testJitter(server: Server): Promise<JitterResult>
+    +runComprehensiveTest(server: Server): Promise<ServerMetrics>
+    
+    -performPingTest(endpoint: string): Promise<number>
+    -measureThroughput(endpoint: string): Promise<number>
+  }
+
+  class ClientLoadBalancer {
+    -serverPool: ServerPool
+    -weightingAlgorithm: WeightingAlgorithm
+    -failoverStrategy: FailoverStrategy
+    
+    +distributeLoad(servers: Server[]): LoadDistribution
+    +calculateServerWeights(metrics: ServerMetrics[]): ServerWeights
+    +handleServerUnavailable(server: Server): void
+    +rebalanceConnections(): Promise<void>
+    
+    -applyLoadBalancingAlgorithm(servers: Server[]): Server
+    -updateServerScores(server: Server, metrics: Metrics): void
+  }
+
+  class KubernetesIntegration {
+    -serviceDiscovery: ServiceDiscovery
+    -configMapManager: ConfigMapManager
+    -healthCheckManager: HealthCheckManager
+    -loadBalancerHints: LoadBalancerHints
+    
+    +discoverServices(namespace: string): Promise<ServiceList>
+    +updateConfiguration(config: Configuration): Promise<void>
+    +registerHealthChecks(checks: HealthCheck[]): void
+    +setLoadBalancerHints(hints: LBHints): void
+    
+    -watchServiceChanges(): Observable<ServiceChange>
+    -handleServiceMeshIntegration(): void
+  }
+
+  class EdgeOptimizer {
+    -cdnManager: CDNManager
+    -cacheStrategy: CacheStrategy
+    -contentOptimizer: ContentOptimizer
+    
+    +optimizeForEdge(content: Content): Promise<OptimizedContent>
+    +setupCDNDistribution(assets: Asset[]): Promise<CDNDistribution>
+    +cacheStaticResources(resources: Resource[]): void
+    +optimizeMediaDelivery(stream: MediaStream): OptimizedStream
+    
+    -selectOptimalCDNNodes(userLocation: Location): CDNNode[]
+    -implementCachingStrategy(content: Content): CacheConfiguration
+  }
+
+  interface Server {
+    +id: string
+    +endpoint: string
+    +region: string
+    +capabilities: ServerCapabilities
+    +currentLoad: number
+    +healthScore: number
+  }
+
+  interface ServerMetrics {
+    +rtt: number
+    +bandwidth: number
+    +jitter: number
+    +packetLoss: number
+    +availability: number
+    +lastUpdated: Date
+  }
+}
+
+' Edge Computing relationships
+ServerDiscoveryManager *-- GeoDetector
+ServerDiscoveryManager *-- LatencyTester
+ServerDiscoveryManager *-- ClientLoadBalancer
+ServerDiscoveryManager o-- Server
+KubernetesIntegration --> Server
+EdgeOptimizer --> ServerMetrics
+@enduml

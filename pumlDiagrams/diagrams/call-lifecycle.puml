@@ -1,0 +1,100 @@
+@startuml call-lifecycle
+@startuml call-lifecycle
+participant "User App" as App
+participant "RtcEngine" as Engine
+participant "SignalingClient" as Signaling
+participant "MediaController" as Media
+participant "Signaling Server" as Server
+participant "TURN/STUN" as TURN
+participant "Remote Peer" as Peer
+
+activate App
+App -> Engine: createConnection(roomId)
+activate Engine
+
+note over Engine: Initialize WebRTC infrastructure
+
+Engine -> Media: getLocalMedia(constraints)
+activate Media
+Media -> Media: Request permissions
+alt Permission granted
+  Media --> Engine: localStream
+else Permission denied
+  Media --> Engine: PermissionError
+  Engine --> App: Error event
+  stop
+end
+deactivate Media
+
+Engine -> Signaling: connect(signalingUrl)
+activate Signaling
+Signaling -> Server: WebSocket handshake
+Server --> Signaling: Connection established
+Signaling --> Engine: ready event
+deactivate Signaling
+
+Engine -> Engine: createPeerConnection()
+Engine -> TURN: getConfiguration()
+TURN --> Engine: iceServers[]
+
+Engine -> Engine: addLocalStream(localStream)
+Engine -> Signaling: sendMessage({type: 'join-room', roomId})
+
+Signaling -> Server: join-room
+Server -> Server: Add user to room
+Server --> Signaling: user-joined event
+Signaling --> Engine: user-joined
+
+note over Engine, Peer: ICE Candidate Exchange Phase
+
+Engine -> Engine: onicecandidate event
+Engine -> Signaling: sendMessage({type: 'ice-candidate', candidate})
+Signaling -> Server: Forward ICE candidate
+Server -> Peer: ICE candidate
+Peer -> Peer: addIceCandidate()
+
+note over Engine, Peer: SDP Offer/Answer Exchange
+
+Engine -> Engine: createOffer()
+Engine -> Engine: setLocalDescription(offer)
+Engine -> Signaling: sendMessage({type: 'offer', sdp})
+Signaling -> Server: Forward offer
+Server -> Peer: Offer SDP
+Peer -> Peer: setRemoteDescription(offer)
+Peer -> Peer: createAnswer()
+Peer -> Peer: setLocalDescription(answer)
+Peer -> Server: Answer SDP
+Server -> Signaling: Forward answer
+Signaling -> Engine: Answer received
+Engine -> Engine: setRemoteDescription(answer)
+
+note over Engine, Peer: Connection Establishment
+
+Engine -> Engine: ICE connection state: connected
+Engine --> App: onConnectionStateChange('connected')
+
+Engine -> Engine: ontrack event
+Engine -> Media: addRemoteStream(stream)
+activate Media
+Media --> Engine: remoteStream ready
+Engine --> App: onRemoteStream(stream)
+deactivate Media
+
+note over Engine, Peer: **Media Exchange Active**
+
+...Call in progress...
+
+note over App: User ends call
+
+App -> Engine: leaveRoom()
+Engine -> Signaling: sendMessage({type: 'leave-room'})
+Engine -> Engine: close peerConnection
+Engine -> Media: stopLocalStream()
+activate Media
+Media -> Media: Release media resources
+deactivate Media
+Engine --> App: call-ended event
+
+deactivate Engine
+deactivate App
+@enduml
